@@ -436,25 +436,6 @@ CREATE INDEX idx_notification_unread
 CREATE INDEX idx_vendortrade_ranked
     ON vendor_trade (trade_id, vendor_id);
 
--- ─────────────────────────────────────────────────────────────────────────
---  Auth indexes (OTP + Google OAuth)
--- ─────────────────────────────────────────────────────────────────────────
-
--- Idx 17 : Fast OTP lookup during verify
-CREATE INDEX idx_otp_identifier_active
-    ON otp_request (identifier, is_used, expires_at);
-
--- Idx 18 : Sweep expired / used OTPs
-CREATE INDEX idx_otp_expired
-    ON otp_request (expires_at) WHERE is_used = FALSE;
-
--- Idx 19 : Session lookup by user (logout-all, deactivation)
-CREATE INDEX idx_session_user
-    ON user_session (user_id, is_revoked);
-
--- Idx 20 : Google account linking
-CREATE INDEX idx_user_google_sub
-    ON "user" (google_sub) WHERE google_sub IS NOT NULL;
 
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -486,6 +467,26 @@ CREATE TABLE user_session (
     expires_at          TIMESTAMPTZ   NOT NULL,     -- e.g. NOW() + INTERVAL '30 days'
     is_revoked          BOOLEAN       NOT NULL DEFAULT FALSE
 );
+
+-- ─────────────────────────────────────────────────────────────────────────
+--  Auth indexes (OTP + Google OAuth)  – placed here after tables exist
+-- ─────────────────────────────────────────────────────────────────────────
+
+-- Idx 17 : Fast OTP lookup during verify
+CREATE INDEX idx_otp_identifier_active
+    ON otp_request (identifier, is_used, expires_at);
+
+-- Idx 18 : Sweep expired / used OTPs
+CREATE INDEX idx_otp_expired
+    ON otp_request (expires_at) WHERE is_used = FALSE;
+
+-- Idx 19 : Session lookup by user (logout-all, deactivation)
+CREATE INDEX idx_session_user
+    ON user_session (user_id, is_revoked);
+
+-- Idx 20 : Google account linking
+CREATE INDEX idx_user_google_sub
+    ON "user" (google_sub) WHERE google_sub IS NOT NULL;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 --  SEED DATA – Reference / Lookup tables
