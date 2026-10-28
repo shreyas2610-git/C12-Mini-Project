@@ -4,11 +4,11 @@
 
 | Item | Count | Detail |
 |---|---|---|
-| Relations (tables) | 22 | 20 entity relations and 2 junction relations (RolePermission, VendorTrade). 10 come from the baseline and 12 are new. RoleInheritance was removed. |
-| Attributes | 138 | Between 2 and 33 per relation. Complaint has 33 and the average is about 6. |
-| Relationships | 37 | 32 one-to-many, 3 one-to-one and 2 many-to-many. One is recursive (Complaint to Complaint). Number 10 is retired. |
-| Foreign keys | 39 | 35 single-column foreign keys plus 4 inside the two junction tables. |
-| Value lists | 12 | Listed in section 4. |
+| Relations (tables) | 25 | 22 entity relations, 2 junction relations (RolePermission, VendorTrade) and 1 session table (UserSession). 10 come from the baseline and 15 are new. RoleInheritance was removed. |
+| Attributes | ~155 | Between 2 and 33 per relation. Complaint has 33 and the average is about 6. |
+| Relationships | 39 | 34 one-to-many, 3 one-to-one and 2 many-to-many. One is recursive (Complaint to Complaint). Numbers 10 and 15 (RoleInheritance) are retired. |
+| Foreign keys | 41 | 37 single-column foreign keys plus 4 inside the two junction tables. |
+| Value lists | 14 | Listed in section 4. Two new: `auth_provider` and `otp_channel`. |
 
 ## 2. Entity catalogue
 
@@ -37,6 +37,8 @@
 | 21 | Transition | The legal moves of the workflow: from status and phase, to status and phase, and the actor. | New | 8 |
 | 22 | Parameter | The windows and limits the GM can change. | New | 5 |
 | 23 | Notification | An in-app notice for one user. | New | 7 |
+| 24 | OtpRequest | A hashed one-time password sent to a phone or email for passwordless login. Rows expire after 5 minutes and are swept by the cleanup job. | New (auth) | 9 |
+| 25 | UserSession | A server-side record of an active refresh token, enabling immediate revocation when an account is deactivated. | New (auth) | 8 |
 
 ## 3. Attribute dictionary
 
@@ -189,10 +191,13 @@ PK is the primary key and FK is a foreign key. The Null column says whether the 
 | `user_id` | PK | No | Unique id of the user. |
 | `role_id` | FK to Role | No | The user's single role. |
 | `full_name` | | No | Name shown in the interface and the audit trail. |
-| `email` | Unique | No | Login name and contact address. |
-| `phone` | | Yes | Contact number. |
-| `password_hash` | | No | Salted hash of the password. The plain password is never stored. |
-| `is_active` | | No | Deactivated accounts cannot log in. |
+| `email` | Unique | No | Login name and contact address. Auto-linked with an existing OTP account when a Google sign-in email matches. |
+| `phone` | | No | Contact number. Required for OTP delivery. Provided during account creation or first OTP verification. |
+| `password_hash` | | Yes | Salted hash of the password. Nullable: OTP and Google users never set a password. Kept so a password-fallback flow can be added later without a schema migration. |
+| `auth_provider` | | No | How this user authenticates: `otp`, `google` or `both`. Defaults to `otp` on account creation. |
+| `google_sub` | Unique | Yes | Google's immutable user identifier from the `sub` claim of the ID token. The correct key for account linking — not the email, which can change on the Google side. |
+| `avatar_url` | | Yes | Profile picture URL provided by Google Sign-In. Used by the React frontend for a richer UX. |
+| `is_active` | | No | Deactivated accounts cannot log in. Deactivating also revokes all `user_session` rows for the user. |
 | `created_at` | | No | When the account was created. |
 
 ### 3.13 Action
@@ -297,6 +302,34 @@ PK is the primary key and FK is a foreign key. The Null column says whether the 
 | `created_at` | | No | When the notice was created. |
 | `read_at` | | Yes, until read | When the user read it. |
 
+### 3.24 OtpRequest
+
+| Attribute | Key | Null | Meaning |
+|---|---|---|---|
+| `otp_id` | PK | No | Unique id of the OTP request. |
+| `identifier` | | No | The phone number or email address the OTP was sent to. Indexed together with `is_used` and `expires_at` for fast lookup. |
+| `channel` | | No | `sms` or `email`. Email is the primary channel. |
+| `otp_hash` | | No | SHA-256 hash of the 6-digit code. The plaintext code is never stored. |
+| `created_at` | | No | When the OTP was generated. |
+| `expires_at` | | No | When the OTP expires, typically 5 minutes after creation. |
+| `is_used` | | No | True once the OTP has been successfully verified. Prevents replay. |
+| `attempts` | | No | Count of wrong guesses. After 3 to 5 failed attempts the OTP is invalidated to prevent brute-force attacks. |
+| `ip_address` | | Yes | The IP that requested the OTP. Used for per-IP rate limiting. |
+| `user_agent` | | Yes | The device's user-agent string. Device fingerprint for security logging. |
+
+### 3.25 UserSession
+
+| Attribute | Key | Null | Meaning |
+|---|---|---|---|
+| `session_id` | PK (UUID) | No | Unique id of the session, generated with `gen_random_uuid()`. |
+| `user_id` | FK to User | No | The user this session belongs to. |
+| `refresh_token_hash` | | No | SHA-256 hash of the opaque refresh token. The token itself is stored in the client's `httpOnly` cookie. |
+| `device_info` | | Yes | Human-readable device description, for example Chrome on Windows 11. Shown on the sessions screen. |
+| `ip_address` | | Yes | IP address at session creation. |
+| `created_at` | | No | When the session was created. |
+| `expires_at` | | No | When the session expires, typically 30 days after creation. |
+| `is_revoked` | | No | Set to true on logout or when the GM deactivates the account. The JWT middleware checks this on every refresh. |
+
 ## 4. Value lists
 
 | Attribute | Values | Meaning of each value |
@@ -313,6 +346,8 @@ PK is the primary key and FK is a foreign key. The Null column says whether the 
 | RolePermission scope | OWN_FLAT, OWN_ZONE, OWN_JOBS, ESCALATED_ONLY, TOWNSHIP | Own flat's complaints, own zone, own vendor jobs, tickets on the GM's desk only, or the whole township. |
 | Notification type | CLARIFICATION_REQUEST, FIX_CONFIRMATION, STATUS_UPDATE, SLA_ALERT, DISPUTE_UPDATE | Clarification asked, fix awaiting confirmation, ordinary status news, a time alert, or news about a dispute. |
 | Role name | Resident, Coordinator, ZM, Vendor, GM, System | The six actors. System is automatic and has no login. |
+| `auth_provider` | otp, google, both | How the user authenticates. `otp` uses a 6-digit one-time code delivered by email or SMS. `google` uses Google Sign-In. `both` means the user has linked both methods. Defaults to `otp` on account creation. |
+| `otp_channel` | sms, email | How the OTP is delivered. Email is the primary channel (zero cost). SMS is optional and requires a gateway (MSG91, Twilio, AWS SNS). |
 
 ## 5. Relationships
 
@@ -356,6 +391,7 @@ PK is the primary key and FK is a foreign key. The Null column says whether the 
 | 36 | User and Parameter (updated by) | 1:N | `Parameter.updated_by` | Records who last changed a setting. |
 | 37 | User and Notification | 1:N | `Notification.user_id` | A user receives many notices. |
 | 38 | Complaint and Notification | 1:N, optional | `Notification.complaint_id` | A notice can point at a ticket. |
+| 39 | User and UserSession | 1:N | `UserSession.user_id` | A user can have many active sessions across devices. Sessions are revoked together when the account is deactivated. |
 
 Complaint and Vendor are many-to-many through TicketRole. We count that link as two one-to-many relationships (20 and 22) rather than a separate pair.
 

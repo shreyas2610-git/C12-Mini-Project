@@ -1,6 +1,6 @@
 # 🔄 Workflow Document
 
-> 📌 Working draft v0.2. Related engines: E5 Rule Enforcement (shared) and E1 Triage and Routing. This page tells the story of a complaint and holds the register of every rule and definition we enforce. The formal state table lives in the State and State Transitions Document and the permission rules live in the Roles and Permissions Document.
+> 📌 Working draft v0.3. Related engines: E5 Rule Enforcement (shared) and E1 Triage and Routing. This page tells the story of a complaint and holds the register of every rule and definition we enforce. The formal state table lives in the State and State Transitions Document and the permission rules live in the Roles and Permissions Document. Version 0.3 updates the access model to reflect OTP and Google OAuth authentication: passwords are removed, the login flow is replaced by OTP (email primary, SMS optional) and Google Sign-In.
 
 1. Purpose and scope
 2. Who takes part
@@ -163,7 +163,7 @@ This register lists every rule and definition we enforce. The Enforced by column
 | W30 | Disputes | Dispute routing | A ticket the GM held goes straight to the GM. Otherwise the ZM decides within 48 hours and silence escalates to the GM. | T34, T35, T37, T38 | A disputed Invalid closure goes to the ZM. |
 | W31 | Access | Scope | Residents see only their own flat's complaints, vendors only their own roles and ZMs only their zone. The Coordinator and GM read the whole township. | scope in queries | A resident of Tower 3 cannot open a complaint from Tower 7. |
 | W32 | Access | Permission relation | An action is allowed only if the role holds that action in the permission relation. | Roles and Permissions Document | A vendor cannot call the verify action. |
-| W33 | Access | Accounts | Passwords are stored as hashes, inactive accounts cannot log in, and each user has one role. | User table | A deactivated vendor cannot sign in. |
+| W33 | Access | Accounts | Authentication is passwordless. Users sign in with a 6-digit OTP (delivered by email as the primary channel, or SMS optionally) or with Google Sign-In. The first OTP verification or Google sign-in auto-creates an account. Inactive accounts cannot receive OTPs or complete a Google sign-in. Each user has one role. Session tokens are stored server-side and are revoked immediately when an account is deactivated. | User table, `otp_request` table, `user_session` table | A deactivated vendor cannot receive an OTP and cannot sign in. |
 | W34 | Integrity | Audit | Every status, phase, handler, confirmation, role event and field edit is written to an append-only history by triggers. | triggers 1, 2, 4, 5 | The GM sees who changed a priority and when. |
 | W35 | Integrity | One time source | Database time at commit decides every window and deadline. | transactions | A reply at 72 hours and one minute is refused. |
 | W36 | Integrity | Version check | Every state-changing write carries the ticket version. A stale version returns 409. | `version` | The second of two assigners sees 409. |
@@ -268,4 +268,6 @@ Notifications are in-app. The five types are the values of the notification type
 - The data is synthetic. The system runs in a browser, on a phone or a laptop, and notifications are in-app.
 - Scale: 20 to 25 towers, about 2,500 to 3,000 flats, 5,000 open complaints and 50 concurrent users.
 - Vendors serve every zone. There is no zone filter on vendors.
-- The technology stack is fixed at Gate 2.
+- The technology stack is fixed at Gate 2: FastAPI (backend), React (frontend), PostgreSQL on Neon.
+- Authentication is passwordless. Email OTP is the primary channel (zero cost). SMS OTP via a gateway such as MSG91 or AWS SNS is optional. Google Sign-In is available for all roles as a convenience.
+- Account creation for staff roles (Coordinator, ZM, GM, Vendor) is done by the GM through `POST /users`. Resident accounts are auto-created on first OTP verification if the email or phone is not yet registered.

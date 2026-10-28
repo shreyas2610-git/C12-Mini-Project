@@ -1,6 +1,6 @@
 # 🗄 Database Design Document
 
-> 📌 Working draft v0.2, conceptual until Gate 2. Related engines: E2 Record and Audit (Pruthvi) and E3 Resource Guard (Bhoomi). Table and column names are conceptual. Data types, the database engine (a relational database such as PostgreSQL or MySQL) and the migration approach are fixed at G2. Attribute meanings live in the Entity, Attributes, and Relationships Document. Version 0.2 reflects the five-state model with phases, the handler that can name the GM, and the removal of RoleInheritance.
+> 📌 Working draft v0.3. Related engines: E2 Record and Audit (Pruthvi) and E3 Resource Guard (Bhoomi). Table and column names are conceptual. Data types, the database engine (PostgreSQL, Neon) and the migration approach are fixed at G2. Attribute meanings live in the Entity, Attributes, and Relationships Document. Version 0.3 adds OTP and Google OAuth support: the `user` table gains `phone` (required), `auth_provider`, `google_sub` and `avatar_url`; `password_hash` becomes nullable. Two new tables (`otp_request` and `user_session`) and two new ENUM types (`auth_provider`, `otp_channel`) are added.
 
 1. Scope and numbers
 2. Design decisions and the alternatives we weighed
@@ -18,12 +18,13 @@
 
 | Item | Count |
 |---|---|
-| Tables | 22 (20 entity tables and 2 junction tables) |
-| Attributes | 138 |
-| Foreign keys | 39 |
+| Tables | 25 (22 entity tables, 2 junction tables, 1 session table) |
+| Attributes | ~155 |
+| Foreign keys | 41 |
 | Integrity invariants | 9 (I1 to I9, defined in the State and State Transitions Document) |
 | Triggers (proposed) | 5 |
-| Secondary indexes (proposed) | 16, plus the unique constraints |
+| Secondary indexes (proposed) | 20, plus the unique constraints |
+| New ENUM types (total) | 12 (+`auth_provider`, +`otp_channel`) |
 | Normal form | 3NF, with a short list of deliberate redundancy |
 
 ## 2. Design decisions and the alternatives we weighed
@@ -60,7 +61,7 @@
 | 9 | Vendor | `vendor_id` | `vendor_id` to User | `current_load` between 0 and `capacity` , `capacity` at least 0 | `current_load` is the semaphore counter. |
 | 10 | StatusHistory | `history_id` | `complaint_id` to Complaint, `ticket_role_id` to TicketRole, `actor_role_id` to Role, `actor_user_id` to User, `transition_id` to Transition | Append-only, `event_type` in seven values | Written by triggers. |
 | 11 | Role | `role_id` | none | `name` unique | Six rows, including System. |
-| 12 | User | `user_id` | `role_id` to Role | `email` unique | Holds only a password hash. |
+| 12 | User | `user_id` | `role_id` to Role | `email` unique, `google_sub` unique | Holds the auth provider, optional Google sub and avatar. `password_hash` is nullable (OTP and Google users have no password). `phone` is required for OTP delivery. |
 | 13 | Action | `action_id` | none | `code` unique | Named operations. |
 | 14 | RolePermission | ( `role_id` , `action_id` ) | `role_id` to Role, `action_id` to Action | `scope` in five values | The permission relation. |
 | 15 | RoleInheritance | removed | removed | removed | Removed from the model. The number is kept so the other numbers do not shift. |
@@ -72,6 +73,8 @@
 | 21 | Transition | `transition_id` | `from_status` to Status, `to_status` to Status, `actor_role_id` to Role | The combination of `t_code` , `from_status` , `from_phase` , `to_status` , `to_phase` and `actor_role_id` is unique | The legal rows, with phases. |
 | 22 | Parameter | `param_key` | `updated_by` to User | none beyond key | Windows and limits. |
 | 23 | Notification | `notification_id` | `user_id` to User, `complaint_id` to Complaint | `notification_type` in five values | In-app notices. |
+| 24 | OtpRequest | `otp_id` | none | `identifier` + active query indexed | Stores the SHA-256-hashed 6-digit OTP, its expiry, attempt counter and delivery channel. Rows are purged after expiry. |
+| 25 | UserSession | `session_id` (UUID) | `user_id` to User | none beyond key | Server-side refresh-token store. Enables immediate session revocation when an account is deactivated. |
 
 ## 4. Integrity invariants
 
@@ -109,6 +112,10 @@ The plain-language rules are in the State and State Transitions Document. This t
 | 14 | ResidentHold ( `complaint_id` , `ended_at` ) | Finding the open hold and summing intervals | The breach report sums the resident's wait. |
 | 15 | Notification ( `user_id` , `read_at` ) | The unread list | The bell icon counts unread notices. |
 | 16 | VendorTrade ( `trade_id` , `vendor_id` ) | Vendors by trade, ranked by load | The ZM sees electricians ranked by free slots. |
+| 17 | OtpRequest ( `identifier` , `is_used` , `expires_at` ) | Fast OTP lookup during the verify step | The backend finds the latest active OTP for a phone or email in one seek. |
+| 18 | OtpRequest ( `expires_at` ) WHERE `is_used` = FALSE | Sweep expired OTPs | A cleanup job removes unused rows without a full table scan. |
+| 19 | UserSession ( `user_id` , `is_revoked` ) | Session lookup for logout-all and account deactivation | The GM deactivates a user and all active sessions are revoked in one update. |
+| 20 | User ( `google_sub` ) WHERE `google_sub` IS NOT NULL | Google account linking | The OAuth callback finds or creates a user by the immutable Google sub in O(1). |
 
 ## 6. Triggers (proposed)
 
@@ -183,10 +190,15 @@ Everything not listed here is in 3NF. Each item below gets a reconciliation chec
 
 ## 11. Open items for Gate 2
 
-- Choose the engine and the data types.
+- Choose the engine and the data types. ✅ PostgreSQL on Neon (decided in v0.3).
 - Store timestamps in UTC and show them in Indian Standard Time.
 - Decide where the photo files live. The table keeps only a reference.
-- Choose the password hashing method (hashed passwords per OWASP).
+- `password_hash` is nullable in v0.3. Keep it nullable to allow a future password-fallback flow; drop the column entirely only if the team commits to fully passwordless.
+- OTP channel: **email primary** (zero cost for a college project) with optional SMS via a gateway such as MSG91 or AWS SNS. Decided in v0.3.
+- Google OAuth provider: **Google only** for now. Microsoft or GitHub can be added later by extending `auth_provider` ENUM.
+- JWT library: `python-jose` with FastAPI (decided in v0.3).
+- Session storage: database-only (`user_session` table). Redis cache can be added later for higher scale.
 - Decide how retired records are kept. Accounts, vendors and categories use an active flag instead of deletion.
-- Plan how personal data is protected and retained under the DPDP Act 2023.
+- Plan how personal data (phone numbers, email, avatar URLs) is protected and retained under the DPDP Act 2023.
 - Decide the migration and seed-data approach (synthetic data only).
+- Add a scheduled job to sweep expired `otp_request` rows (can piggyback on the existing SLA job).

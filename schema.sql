@@ -1,9 +1,10 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 --  Mini Project Team 12 – Complete Database Schema
 --  Engine   : PostgreSQL (Neon – Connection Pooling ON)
---  Version  : v0.2 (aligned with Database Design Document & EAR Document)
---  Tables   : 22 (20 entity + 2 junction)   |   Attributes : 138
---  FK       : 39   |   Invariants : I1–I9
+--  Version  : v0.3 (adds OTP + Google OAuth – auth_provider, otp_request,
+--             user_session; updates user table)
+--  Tables   : 25 (22 entity + 2 junction + 1 session)  |  Attributes : ~155
+--  FK       : 41   |   Invariants : I1–I9
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ──────────────────────────────
@@ -25,6 +26,8 @@ CREATE TYPE event_type        AS ENUM ('STATUS_CHANGE', 'PHASE_CHANGE', 'HANDLER
 CREATE TYPE hold_type         AS ENUM ('AWAITING_RESIDENT', 'CONFIRMATION_WAIT');
 CREATE TYPE scope_type        AS ENUM ('OWN_FLAT', 'OWN_ZONE', 'OWN_JOBS', 'ESCALATED_ONLY', 'TOWNSHIP');
 CREATE TYPE notification_type AS ENUM ('CLARIFICATION_REQUEST', 'FIX_CONFIRMATION', 'STATUS_UPDATE', 'SLA_ALERT', 'DISPUTE_UPDATE');
+CREATE TYPE auth_provider    AS ENUM ('otp', 'google', 'both');  -- how this user authenticates
+CREATE TYPE otp_channel      AS ENUM ('sms', 'email');           -- delivery channel for OTP
 
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -44,8 +47,11 @@ CREATE TABLE "user" (
     role_id        INT           NOT NULL REFERENCES "role"(role_id),
     full_name      VARCHAR(120)  NOT NULL,
     email          VARCHAR(255)  NOT NULL UNIQUE,
-    phone          VARCHAR(20),
-    password_hash  VARCHAR(255)  NOT NULL,                -- salted hash (bcrypt / argon2)
+    phone          VARCHAR(20)   NOT NULL,                          -- required for OTP delivery
+    password_hash  VARCHAR(255),                                    -- nullable: OTP/Google users have no password
+    auth_provider  auth_provider NOT NULL DEFAULT 'otp',           -- how this user authenticates
+    google_sub     VARCHAR(255)  UNIQUE,                           -- Google's immutable user ID ("sub" claim)
+    avatar_url     TEXT,                                           -- profile picture from Google
     is_active      BOOLEAN       NOT NULL DEFAULT TRUE,
     created_at     TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
@@ -430,6 +436,56 @@ CREATE INDEX idx_notification_unread
 CREATE INDEX idx_vendortrade_ranked
     ON vendor_trade (trade_id, vendor_id);
 
+-- ─────────────────────────────────────────────────────────────────────────
+--  Auth indexes (OTP + Google OAuth)
+-- ─────────────────────────────────────────────────────────────────────────
+
+-- Idx 17 : Fast OTP lookup during verify
+CREATE INDEX idx_otp_identifier_active
+    ON otp_request (identifier, is_used, expires_at);
+
+-- Idx 18 : Sweep expired / used OTPs
+CREATE INDEX idx_otp_expired
+    ON otp_request (expires_at) WHERE is_used = FALSE;
+
+-- Idx 19 : Session lookup by user (logout-all, deactivation)
+CREATE INDEX idx_session_user
+    ON user_session (user_id, is_revoked);
+
+-- Idx 20 : Google account linking
+CREATE INDEX idx_user_google_sub
+    ON "user" (google_sub) WHERE google_sub IS NOT NULL;
+
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  TABLE 24 : OtpRequest   (stores hashed one-time passwords)
+-- ═══════════════════════════════════════════════════════════════════════════
+CREATE TABLE otp_request (
+    otp_id      SERIAL        PRIMARY KEY,
+    identifier  VARCHAR(255)  NOT NULL,             -- phone number or email address
+    channel     otp_channel   NOT NULL,              -- sms or email
+    otp_hash    VARCHAR(255)  NOT NULL,              -- SHA-256 hash of the 6-digit code (never plaintext)
+    created_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    expires_at  TIMESTAMPTZ   NOT NULL,              -- typically NOW() + INTERVAL '5 minutes'
+    is_used     BOOLEAN       NOT NULL DEFAULT FALSE,
+    attempts    INT           NOT NULL DEFAULT 0,    -- brute-force counter; invalidate after 3–5 wrong guesses
+    ip_address  INET,                               -- rate-limit by IP
+    user_agent  TEXT                                -- device fingerprint
+);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  TABLE 25 : UserSession   (server-side refresh-token store)
+-- ═══════════════════════════════════════════════════════════════════════════
+CREATE TABLE user_session (
+    session_id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             INT           NOT NULL REFERENCES "user"(user_id),
+    refresh_token_hash  VARCHAR(255)  NOT NULL,    -- SHA-256 of the opaque refresh token
+    device_info         TEXT,                       -- e.g. "Chrome on Windows 11"
+    ip_address          INET,
+    created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    expires_at          TIMESTAMPTZ   NOT NULL,     -- e.g. NOW() + INTERVAL '30 days'
+    is_revoked          BOOLEAN       NOT NULL DEFAULT FALSE
+);
 
 -- ═══════════════════════════════════════════════════════════════════════════
 --  SEED DATA – Reference / Lookup tables

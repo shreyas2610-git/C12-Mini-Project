@@ -1,6 +1,6 @@
 # 🌐 API Design Document
 
-> 📌 Working draft v0.2. Related engines: E4 Access and Interface (Shreyas) and E5 Rule Enforcement (shared). Endpoint names are proposed. The transition numbers refer to the State and State Transitions Document and the Who column follows the permission matrix in the Roles and Permissions Document. No request or response schemas are fixed yet. Version 0.2 uses the five states with phases, adds the GM delegation endpoint (number 43) and retires number 71, so there are 72 active endpoints.
+> 📌 Working draft v0.3. Related engines: E4 Access and Interface (Shreyas) and E5 Rule Enforcement (shared). Endpoint names are proposed. The transition numbers refer to the State and State Transitions Document and the Who column follows the permission matrix in the Roles and Permissions Document. No request or response schemas are fixed yet. Version 0.3 replaces `POST /auth/login` (username + password) with five new auth endpoints covering OTP and Google OAuth flows. The total is now **76 active endpoints** (numbers run to 78; numbers 71 and 75 are never reused).
 
 1. Endpoint count
 2. Conventions
@@ -21,14 +21,14 @@
 
 | Group | Endpoints | Numbers |
 |---|---|---|
-| Access, intake and reading | 12 | 1 to 12 |
+| Access, intake and reading | 16 | 1 to 12, plus 74–78 (auth) |
 | Triage and clarification | 10 | 13 to 22 |
 | Assignment and vendor work | 8 | 23 to 30 |
 | Verification, resident decision and disputes | 8 | 31 to 38 |
 | GM desk handling | 7 | 39 to 45 |
 | Notifications | 2 | 46 to 47 |
 | Master data and configuration | 25 | 48 to 73, with number 71 retired |
-| Total | 72 | 45 workflow endpoints, 2 notification endpoints, 25 configuration endpoints. The numbers run to 73 and number 71 is never reused. |
+| Total | 76 | 45 workflow endpoints, 2 notification endpoints, 25 configuration endpoints, 4 auth endpoints. Numbers run to 78; 71 and 75 are never reused. |
 
 ## 2. Conventions
 
@@ -36,7 +36,8 @@
 |---|---|---|
 | Base path | `/api/v1` | Versioned, so later changes do not break clients. |
 | Format | REST with JSON over HTTPS | Matches the standards in the requirements. |
-| Authentication | A bearer token (JWT) from the login endpoint, carrying the user id, role and scope | One token per session and no server-side lookup on each call. |
+| Authentication | A short-lived JWT access token (15 min) returned by the OTP-verify or Google-auth endpoints, plus an opaque refresh token stored in an `httpOnly` cookie. The access token carries the user id, role and scope. | Passwordless flow; no credentials are ever sent after initial auth. |
+| Token refresh | `POST /auth/refresh` reads the `httpOnly` cookie, validates against `user_session`, and issues a new access token. | Server-side session table enables immediate revocation. |
 | Authorisation | Five checks in order: token, permission, scope inside the query, guards, version | The order is shown in the Roles and Permissions Document. |
 | Naming | Nouns for resources ( `/complaints` ). Action endpoints for workflow moves, such as `POST /complaints/{id}/assign` . `PATCH` for field edits. `PUT` for replacing a configuration set. | Each workflow move is a business action with its own guards and its own permission row. |
 | Status and phase in responses | Every ticket response carries `status` , `phase` , `handler` and the resident-facing label. The resident view hides the handler value GM. | The resident reads five states and never sees the GM's desk. |
@@ -75,11 +76,16 @@
 
 ## 5. Endpoints
 
-### 5.1 Access, intake and reading (1 to 12)
+### 5.1 Access, intake and reading (1 to 12, 74 to 78)
 
 | # | Method and path | Who | What it does | Rules and errors | Scenario |
 |---|---|---|---|---|---|
-| 1 | `POST /auth/login` | Public | Checks the email and password and returns a signed token that carries the user id, the role and the scope (flat, zone or vendor id). The token goes on every later call. | 401 for a wrong password or an inactive account. | A resident opens the app and signs in. |
+| 74 | `POST /auth/otp/request` | Public | Accepts a phone or email address, generates a 6-digit OTP, stores its SHA-256 hash in `otp_request` with a 5-minute expiry and delivers it via email (primary) or SMS. Rate-limited: max 5 requests per identifier per hour, max 20 per IP per hour. | 429 when the rate limit is exceeded. 400 for a malformed identifier. | A resident opens the app and types their email. |
+| 75 | Retired | none | Number reserved; not used. | none | none |
+| 76 | `POST /auth/otp/verify` | Public | Accepts the identifier and the 6-digit code, checks the hash and expiry, enforces the 3-attempt limit, then returns a JWT access token (15 min) and sets the refresh token in an `httpOnly` cookie. Creates a new `user_session` row. If the identifier belongs to no user yet, a skeleton account is auto-created. | 401 for a wrong code or an expired OTP. 429 after 3 wrong attempts. 401 for an inactive account. | The resident enters the code received by email and lands on the dashboard. |
+| 77 | `POST /auth/google` | Public | Accepts a Google ID token from the React frontend, verifies it with Google's public keys, extracts the `sub` claim and looks up or creates the user by `google_sub`. Auto-links to an existing OTP account if the email matches and the account is active. Returns a JWT access token and sets the refresh-token cookie. | 401 for an invalid or expired Google ID token. 401 for an inactive account. | A coordinator clicks Sign in with Google and is authenticated in one step. |
+| 78 | `POST /auth/refresh` | Authenticated (cookie) | Reads the `httpOnly` refresh-token cookie, validates it against `user_session` (not revoked, not expired), issues a new short-lived JWT access token and rotates the refresh token. | 401 if the cookie is missing, revoked or expired. | The React app silently refreshes the access token before it expires. |
+| 1 | `POST /auth/logout` | All | Revokes the caller's current `user_session` row and clears the `httpOnly` cookie. Optionally accepts `all=true` to revoke all sessions for the user. | 401 without a valid token. | A user logs out from the app or revokes all devices from the profile page. |
 | 2 | `GET /auth/me` | All | Returns the caller's profile, role and scope, plus the actions the role may use, so the screen can hide the rest. | 401 without a valid token. | The web app loads and hides actions the role cannot use. |
 | 3 | `POST /complaints` | Resident | Raises a complaint for the resident's own flat or a shared area, with category, description and optional photos. The ticket starts as Reported / Triage / Coordinator, the zone is looked up, the due times are set and the recurrence check runs. A recurring complaint goes to the ZM (T2) or to the GM (T3). Returns 201 with the ticket id and status. | 400 if neither or both of flat and shared area are given. 404 for a flat that is not the resident's own. | A resident of Flat 704 reports a leaking pipe in the bathroom. |
 | 4 | `GET /complaints` | Resident, Coordinator, ZM, GM | Lists complaints inside the caller's scope, with filters for status, phase, handler, category, zone, recurring and escalated, and with paging. A resident sees the own flat, a ZM the own zone, and the Coordinator and GM the whole township. | Out-of-scope rows are never returned. 403 for Vendors, who use endpoint 26. | The ZM opens the zone list filtered to Under Review. |
@@ -236,3 +242,6 @@
 - A repeated request after success returns 422 or 409 because the state has already moved. We add no idempotency key for now (proposed).
 - Every state-changing complaint endpoint carries the ticket version. A stale version returns 409 with the current state.
 - Endpoint 71 is retired. We keep the numbers of the other endpoints so earlier references still resolve.
+- `POST /auth/login` (number 1, username + password) is retired in v0.3. The number 1 is reassigned to `POST /auth/logout`. Earlier references to the login endpoint should now point to endpoint 76 (OTP verify) or endpoint 77 (Google).
+- The refresh token is stored in an `httpOnly` cookie and never in `localStorage`, mitigating XSS token theft. The access token is kept in React component state (memory only).
+- Rate limiting on OTP endpoints (74, 76) must be enforced at the FastAPI layer using `slowapi` or a Redis-backed limiter before the Neon database is touched.
