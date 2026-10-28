@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────
+#  .gitignore – Mini Project Team 12
+# ─────────────────────────────────────────────────────────
+
+# ── Secrets & Environment ──────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Node / JS ──────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+package-lock.json
+
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# ── IDE & OS ───────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Build & Dist ───────────────────────────────────────
+dist/
+build/
+*.log

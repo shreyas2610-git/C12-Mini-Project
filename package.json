@@ -1,0 +1,25 @@
+{
+  "name": "001-mini-project_team_12",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shreyas2610-git/C12-Mini-Project.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/shreyas2610-git/C12-Mini-Project/issues"
+  },
+  "homepage": "https://github.com/shreyas2610-git/C12-Mini-Project#readme",
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "pg": "^8.23.1"
+  }
+}
