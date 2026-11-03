@@ -26,7 +26,12 @@ CREATE TYPE event_type        AS ENUM ('STATUS_CHANGE', 'PHASE_CHANGE', 'HANDLER
 CREATE TYPE hold_type         AS ENUM ('AWAITING_RESIDENT', 'CONFIRMATION_WAIT');
 CREATE TYPE scope_type        AS ENUM ('OWN_FLAT', 'OWN_ZONE', 'OWN_JOBS', 'ESCALATED_ONLY', 'TOWNSHIP');
 CREATE TYPE notification_type AS ENUM ('CLARIFICATION_REQUEST', 'FIX_CONFIRMATION', 'STATUS_UPDATE', 'SLA_ALERT', 'DISPUTE_UPDATE');
-CREATE TYPE auth_provider    AS ENUM ('otp', 'google', 'both');  -- how this user authenticates
+CREATE TYPE auth_provider    AS ENUM ('password', 'otp', 'google', 'password_otp', 'both');  -- how this user authenticates
+--   password      = email + password only (default for new sign-ups)
+--   otp           = phone/email OTP only (no password set)
+--   google        = Google OAuth only
+--   password_otp  = password set AND OTP login enabled
+--   both          = password + Google OAuth
 CREATE TYPE otp_channel      AS ENUM ('sms', 'email');           -- delivery channel for OTP
 
 
@@ -49,7 +54,7 @@ CREATE TABLE "user" (
     email          VARCHAR(255)  NOT NULL UNIQUE,
     phone          VARCHAR(20)   NOT NULL,                          -- required for OTP delivery
     password_hash  VARCHAR(255),                                    -- nullable: OTP/Google users have no password
-    auth_provider  auth_provider NOT NULL DEFAULT 'otp',           -- how this user authenticates
+    auth_provider  auth_provider NOT NULL DEFAULT 'password',       -- how this user authenticates
     google_sub     VARCHAR(255)  UNIQUE,                           -- Google's immutable user ID ("sub" claim)
     avatar_url     TEXT,                                           -- profile picture from Google
     is_active      BOOLEAN       NOT NULL DEFAULT TRUE,
@@ -531,3 +536,20 @@ CREATE TRIGGER trg_status_history_immutable
 --  Done.  All timestamps are stored in UTC (TIMESTAMPTZ).
 --  Display in IST (UTC+05:30) at the application layer.
 -- ═══════════════════════════════════════════════════════════════════════════
+
+
+-- =============================================================================
+--  v0.4 Migration: run once on existing DB (fresh installs skip this block as
+--  the ENUM and DEFAULT above already reflect v0.4 values).
+-- =============================================================================
+
+-- Extend auth_provider ENUM with password-based values
+ALTER TYPE auth_provider ADD VALUE IF NOT EXISTS 'password';
+ALTER TYPE auth_provider ADD VALUE IF NOT EXISTS 'password_otp';
+
+-- New sign-ups default to password auth
+ALTER TABLE "user" ALTER COLUMN auth_provider SET DEFAULT 'password';
+
+-- =============================================================================
+--  End of schema v0.4
+-- =============================================================================

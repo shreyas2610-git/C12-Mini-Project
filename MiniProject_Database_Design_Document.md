@@ -1,6 +1,6 @@
 # 🗄 Database Design Document
 
-> 📌 Working draft v0.3. Related engines: E2 Record and Audit (Pruthvi) and E3 Resource Guard (Bhoomi). Table and column names are conceptual. Data types, the database engine (PostgreSQL, Neon) and the migration approach are fixed at G2. Attribute meanings live in the Entity, Attributes, and Relationships Document. Version 0.3 adds OTP and Google OAuth support: the `user` table gains `phone` (required), `auth_provider`, `google_sub` and `avatar_url`; `password_hash` becomes nullable. Two new tables (`otp_request` and `user_session`) and two new ENUM types (`auth_provider`, `otp_channel`) are added.
+> 📌 Working draft v0.4. Related engines: E2 Record and Audit (Pruthvi) and E3 Resource Guard (Bhoomi). Table and column names are conceptual. Data types, the database engine (PostgreSQL, Neon) and the migration approach are fixed at G2. Attribute meanings live in the Entity, Attributes, and Relationships Document. Version 0.4 re-introduces password authentication as the primary sign-up format (email + password + phone) alongside role-specific intake (Resident cascading flat, Vendor company & trades, ZM subsequent zone mapping); `auth_provider` ENUM is extended with `'password'` and `'password_otp'` and defaults to `'password'`, while preserving OTP and Google OAuth as alternative sign-in options. `password_hash` is populated for all password sign-ups and remains nullable for pure OAuth/OTP users. Two extra relations (`otp_request` and `user_session`) remain in the schema.
 
 1. Scope and numbers
 2. Design decisions and the alternatives we weighed
@@ -193,7 +193,7 @@ Everything not listed here is in 3NF. Each item below gets a reconciliation chec
 - Choose the engine and the data types. ✅ PostgreSQL on Neon (decided in v0.3).
 - Store timestamps in UTC and show them in Indian Standard Time.
 - Decide where the photo files live. The table keeps only a reference.
-- `password_hash` is nullable in v0.3. Keep it nullable to allow a future password-fallback flow; drop the column entirely only if the team commits to fully passwordless.
+- `password_hash` is populated during standard email+password sign-up (hashed with bcrypt), while remaining nullable to accommodate pure Google OAuth or standalone OTP users. Decided in v0.4.
 - OTP channel: **email primary** (zero cost for a college project) with optional SMS via a gateway such as MSG91 or AWS SNS. Decided in v0.3.
 - Google OAuth provider: **Google only** for now. Microsoft or GitHub can be added later by extending `auth_provider` ENUM.
 - JWT library: `python-jose` with FastAPI (decided in v0.3).
