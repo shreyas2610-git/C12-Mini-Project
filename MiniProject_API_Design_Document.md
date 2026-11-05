@@ -246,3 +246,35 @@
 - `POST /auth/login` (number 1, username + password) is retired in v0.3. The number 1 is reassigned to `POST /auth/logout`. Earlier references to the login endpoint should now point to endpoint 76 (OTP verify) or endpoint 77 (Google).
 - The refresh token is stored in an `httpOnly` cookie and never in `localStorage`, mitigating XSS token theft. The access token is kept in React component state (memory only).
 - Rate limiting on OTP endpoints (74, 76) must be enforced at the FastAPI layer using `slowapi` or a Redis-backed limiter before the Neon database is touched.
+
+### Priority Scoring in API Responses
+
+Ticket responses from `GET /complaints` and `GET /complaints/{id}` include:
+* `priority_score`: Integer priority score computed by $\text{severity} + \text{aging} + \text{boosts}$.
+* `category`: Includes `level`, `severity_points`, and `default_trade_id`.
+* `default_trade`: Trade object with `trade_id` and `name`.
+
+### 8. Implemented v1 REST Endpoints Register
+
+The following live endpoints are operational at `/api/v1`:
+
+| Method | Endpoint | Access | Purpose |
+|---|---|---|---|
+| `GET` | `/api/v1/complaints` | Resident (own), Staff (township) | List complaints with status, phase, zone, and handler filters. |
+| `GET` | `/api/v1/complaints/queue` | Coordinator, GM | Returns un-routed intake complaints sorted by priority score DESC. |
+| `GET` | `/api/v1/complaints/{id}` | Resident (own), Staff (all) | Detailed ticket view including assigned roles, status history timeline, and attachments. |
+| `POST` | `/api/v1/complaints` | Resident | Register new complaint (`title`, `description`, `flat_id`/`common_area_id`, `category_id`, `urgent_flag`). |
+| `POST` | `/api/v1/complaints/{id}/route` | Coordinator | Confirm authenticity and route ticket to Zone Manager with optional notes. |
+| `POST` | `/api/v1/complaints/{id}/clarification` | Coordinator | Put ticket on 72-hour hold with a specific question for the resident. |
+| `POST` | `/api/v1/complaints/{id}/category` | Coordinator | Recategorize ticket; automatically updates default trade role and recalculates response/resolution SLAs. |
+| `POST` | `/api/v1/complaints/{id}/invalid` | Coordinator | Close ticket as Invalid after the 72-hour hold window or after negative resident reply. |
+| `POST` | `/api/v1/complaints/{id}/duplicate` | Coordinator | Close ticket as Duplicate linked to `parent_complaint_id`. |
+| `POST` | `/api/v1/complaints/{id}/reply` | Resident | Submit answer to coordinator's clarification question; resumes triage. |
+| `POST` | `/api/v1/complaints/{id}/withdraw` | Resident | Withdraw complaint before vendor accepts. |
+| `POST` | `/api/v1/complaints/{id}/confirm-fix` | Resident | Confirm vendor work was satisfactory; closes ticket as `Fixed`. |
+| `POST` | `/api/v1/complaints/{id}/reject-fix` | Resident | Reject vendor fix within 48h; triggers rework or escalation. |
+| `POST` | `/api/v1/complaints/{id}/dispute` | Resident | Dispute an `Invalid`, `Duplicate`, or `Unresolved` closure within 7 days; transitions ticket to `Disputed` and routes to ZM. |
+| `GET` | `/api/v1/categories` | All authenticated | Fetch all 24 complaint categories with levels, SLAs, and default trades. |
+| `GET` | `/api/v1/common-areas` | All authenticated | Fetch common areas filterable by zone. |
+| `GET` | `/api/v1/trades` | All authenticated | Fetch all 11 trades. |
+| `GET` | `/api/v1/users/me` | All authenticated | Fetch current caller profile, role, flat details, and permissions. |

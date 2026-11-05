@@ -1,6 +1,6 @@
 # 🔄 Workflow Document
 
-> 📌 Working draft v0.3. Related engines: E5 Rule Enforcement (shared) and E1 Triage and Routing. This page tells the story of a complaint and holds the register of every rule and definition we enforce. The formal state table lives in the State and State Transitions Document and the permission rules live in the Roles and Permissions Document. Version 0.3 updates the access model to reflect OTP and Google OAuth authentication: passwords are removed, the login flow is replaced by OTP (email primary, SMS optional) and Google Sign-In.
+> 📌 Working draft v0.6. Related engines: E5 Rule Enforcement (shared) and E1 Triage and Routing. This page tells the story of a complaint and holds the register of every rule and definition we enforce. The formal state table lives in the State and State Transitions Document and the permission rules live in the Roles and Permissions Document. Version 0.6 incorporates the 24 linked categories with default trades (plus Fire & Gas Safety), priority score formula with aging and boosts, Coordinator triage operational views and filters, real-time SLA countdown badges, resident urgent flag, clarification hold, dispute retention, and clear separation of duties (Coordinator triages & routes; Zone Manager assigns trades & vendors).
 
 1. Purpose and scope
 2. Who takes part
@@ -25,11 +25,11 @@ This document describes how a complaint travels through our system: who raises i
 
 | Actor | Part in the workflow |
 |---|---|
-| Resident | Raises the complaint for their own flat or a shared area, answers a clarification request within 72 hours, confirms or rejects the fix within 48 hours, can withdraw until a vendor accepts, and can dispute a Duplicate, Invalid or Unresolved closure once within 7 days. |
-| Helpdesk Coordinator | Township-wide front desk. Works the triage queue: fixes the category, asks the resident to clarify, confirms the complaint is genuine, hands the ticket to the ZM or assigns vendors until the ZM acts, closes duplicates and closes Invalid after the 72 hour window. |
-| Zone Manager (ZM) | Owns one zone and has the final say in it. Takes over tickets, confirms or sends back, assigns vendors, verifies completed work, orders rework, decides disputes within 48 hours, escalates with a reason, and receives tickets that the GM delegates. |
+| Resident | Raises the complaint for their own flat or a shared area, marks urgency (+15 priority points), answers a clarification request within 72 hours, confirms or rejects the fix within 48 hours, can withdraw until a vendor accepts, and can dispute a Duplicate, Invalid or Unresolved closure once within 7 days. |
+| Helpdesk Coordinator | Township-wide front desk. Works the triage queue: reviews intake tickets, fixes/adjusts the category (which auto-assigns the default trade role), asks the resident to clarify (72h hold), confirms the complaint is genuine, routes the ticket to the Zone Manager with notes, closes duplicates, and closes Invalid after the 72 hour window. Monitors township queues across operational views. |
+| Zone Manager (ZM) | Owns one zone and has operational authority in it. Takes over tickets, confirms or sends back, adds supplementary trades (e.g. Masonry + Painting for a leak), assigns and reassigns vendors, verifies completed work, orders rework, decides disputes within 48 hours, escalates with a reason, and receives tickets that the GM delegates. |
 | Vendor | Skilled worker or company that serves every zone. Accepts or rejects a role, starts work, adds notes and photos and marks their own role done. |
-| General Manager (GM) | Acts on tickets on the GM's desk and on configuration. Marks work fixed, closes as Unresolved, reassigns vendors, delegates a ticket to a ZM for good, and reopens closed tickets within 7 days. Manages accounts, zones, categories, trades, capacity and parameters. |
+| General Manager (GM) | Acts on tickets on the GM's desk and on configuration. Marks work fixed, closes as Unresolved, reassigns vendors, delegates a ticket to a ZM for good, and reopens closed tickets within 7 days. Manages accounts, zones, categories, trades, capacity and parameters. Directly receives sensitive complaints (Theft, Harassment). |
 | System | Automatic actor with no login: intake routing, recurrence check, the SLA and timeout job, capacity enforcement and the last-role-done step. |
 
 ## 3. The journey of a complaint
@@ -234,6 +234,40 @@ The label comes from the status and phase. The GM's desk is not shown, because i
 
 Any ticket with a reopen count above 0 also carries a Reopened tag.
 
+### 8.1 Live SLA Countdown and Alert Badges
+
+To prevent confusion from integer-hour rounding, every ticket card and detail modal renders a dynamic SLA badge with live time remaining and alert states:
+
+| Condition | Badge Display | Color / Style | Meaning |
+|---|---|---|---|
+| `now > due_at` | `Overdue by Xh Ym (SLA Breached)` | Red (pulsing) | SLA target missed; requires immediate triage or management escalation. |
+| `0 <= diff <= 60m` | `Response due in Xm (Urgent)` | Amber | Under 1 hour remaining before breach; urgent action needed. |
+| `diff > 60m` | `Response due in Xh Ym` / `Target: Xh Ym` | Purple / Slate | Normal operational window within SLA. |
+| Triaged / Completed | `Triaged` / `Resolved` / `SLA Met` | Emerald | Target milestone fulfilled within SLA window. |
+
+### 8.2 Coordinator Desk Interface & Operational Queues
+
+The Township Central Desk provides 6 dedicated operational views and refined multi-criteria filters:
+
+1. **Operational Views (Queue Tabs)**:
+   - ⚡ **Triage Queue**: Newly reported tickets awaiting initial review and routing (`status = 'Reported'`).
+   - 🔥 **Urgent / Level 5**: Lifesafety hazards, emergency calls, and Level 5 complaints.
+   - ⚠️ **SLA Breached**: Active complaints where the response or resolution target has passed.
+   - 💬 **Awaiting Resident**: Complaints with active clarification questions on 72-hour hold.
+   - 🛡️ **GM Sensitive**: Critical complaints reserved for General Manager intake (Theft, Security, Harassment).
+   - 📋 **All Township Tickets**: Full registry across all 3 zones.
+
+2. **Filter Toolbar**:
+   - **Zone**: All Zones, Zone 1 (Jasmine, Lotus), Zone 2 (Rose, Lily, Marigold), Zone 3 (Tulip, Orchid).
+   - **Category**: Dropdown across all 24 categories.
+   - **Status**: Reported, In Progress, Completed, Escalated, Closed, Disputed.
+   - **Severity**: Level 5 (Critical - 60pts) down to Level 1 (Routine - 12pts).
+   - **Search & Reset**: Real-time keyword filter across ticket #, resident name, tower, flat, description.
+
+3. **Separation of Duties in Triage**:
+   - Coordinator actions: Confirm & Route to Zone Manager, Request Clarification, Change Category (auto-recalculates default trade & SLA), Close Invalid (after 72h hold), Close Duplicate.
+   - Assignment of vendors and addition of supplementary trades (e.g. Masonry + Painting) are exclusively performed by the Zone Manager.
+
 ## 9. Who marks what at the end of a ticket
 
 No one marks a ticket Resolved as a state. The old Resolved state is now the Confirming phase of Under Review. The people involved mark different things:
@@ -271,3 +305,20 @@ Notifications are in-app. The five types are the values of the notification type
 - The technology stack is fixed at Gate 2: FastAPI (backend), React (frontend), PostgreSQL on Neon.
 - Authentication is passwordless. Email OTP is the primary channel (zero cost). SMS OTP via a gateway such as MSG91 or AWS SNS is optional. Google Sign-In is available for all roles as a convenience.
 - Account creation for staff roles (Coordinator, ZM, GM, Vendor) is done by the GM through `POST /users`. Resident accounts are auto-created on first OTP verification if the email or phone is not yet registered.
+
+### 5.3 Priority Scoring Formula
+
+Every open ticket carries a calculated priority score that determines queue ordering and SLA escalation:
+
+$$\text{Ticket Score} = \text{Severity Points} + \text{Aging Points (0–60)} + \text{Boosts}$$
+
+1. **Severity Points**: $12 \times \text{level}$ (12 for Level 1 up to 60 for Level 5).
+2. **Aging Points**: Scales linearly from 0 to 60 points, reaching the 60-point ceiling at $1.5 \times \text{SLA}$.
+   - Example: A Level-1 category with a 120-hour SLA reaches maximum aging at 180 hours ($1.5 \times 120$).
+   - Example: A Lift entrapment with a 4-hour SLA reaches maximum aging at 6 hours ($1.5 \times 4$).
+3. **Boosts**:
+   - Urgent flag: +15 points
+   - Recurring complaint (3rd fault in 90 days): +10 points
+   - Rework attempt: +5 points per round, capped at +15 points (3 reworks).
+4. **Sensitive Categories**:
+   - "Security concern or theft" and "Harassment or staff misconduct" bypass the triage queue and route directly to the General Manager.

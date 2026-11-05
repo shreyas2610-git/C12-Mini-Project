@@ -1,6 +1,6 @@
 # 🗄 Database Design Document
 
-> 📌 Working draft v0.4. Related engines: E2 Record and Audit (Pruthvi) and E3 Resource Guard (Bhoomi). Table and column names are conceptual. Data types, the database engine (PostgreSQL, Neon) and the migration approach are fixed at G2. Attribute meanings live in the Entity, Attributes, and Relationships Document. Version 0.4 re-introduces password authentication as the primary sign-up format (email + password + phone) alongside role-specific intake (Resident cascading flat, Vendor company & trades, ZM subsequent zone mapping); `auth_provider` ENUM is extended with `'password'` and `'password_otp'` and defaults to `'password'`, while preserving OTP and Google OAuth as alternative sign-in options. `password_hash` is populated for all password sign-ups and remains nullable for pure OAuth/OTP users. Two extra relations (`otp_request` and `user_session`) remain in the schema.
+> 📌 Working draft v0.6. Related engines: E2 Record and Audit (Pruthvi) and E3 Resource Guard (Bhoomi). Table and column names are conceptual. Data types, the database engine (PostgreSQL, Neon) and the migration approach are fixed at G2. Attribute meanings live in the Entity, Attributes, and Relationships Document. Version 0.6 adds `urgent_flag`, `title`, `clarification_question`, `clarification_reply`, and `clarification_due_at` to `Complaint`, adds `title` to `Notification`, updates Invariant I1 (`i1_resolution_closed`) to allow `status = 'Disputed'` to retain the contested resolution during resident appeal, links `ComplaintCategory` to `Trade` via `default_trade_id` across 25 categories, simplifies `TicketRole.role_status` to `'Open'`, `'In Progress'`, `'Done'`, defines priority calculation (`Ticket score = severity points + aging (0–60) + boosts`), and seeds full baseline parameters, transitions, roles, actions, permissions, common areas, users, vendors, and sample complaints.
 
 1. Scope and numbers
 2. Design decisions and the alternatives we weighed
@@ -55,9 +55,9 @@
 | 3 | Flat | `flat_id` | `tower_id` to Tower | `flat_number` unique within a tower | Part of the location to zone map. |
 | 4 | CommonArea | `common_area_id` | `zone_id` to Zone | `name` unique | Part of the location to zone map. |
 | 5 | Resident | `resident_id` | `resident_id` to User, `flat_id` to Flat | none beyond keys | Subtype of User. |
-| 6 | ComplaintCategory | `category_id` | none | `name` unique, severity in four values, SLA hours above zero | Targets are not retroactive. |
-| 7 | Complaint | `complaint_id` | `raised_by` to Resident, `flat_id` to Flat, `common_area_id` to CommonArea, `zone_id` to Zone, `category_id` to ComplaintCategory, `duplicate_of` to Complaint, `status` to Status, `confirmed_by` to User | I1 to I9, domains for phase, handler (three values), priority, resolution and send-back reason, `version` at least 1, `reopen_count` between 0 and the limit | The central table. Holds the redundant columns listed in section 9. |
-| 8 | TicketRole | `ticket_role_id` | `complaint_id` to Complaint, `trade_id` to Trade, `vendor_id` to Vendor, `assigned_by` to User | ( `complaint_id` , `trade_id` ) unique, `role_status` in five values | One named vendor per role. |
+| 6 | ComplaintCategory | `category_id` | `default_trade_id` to Trade | `name` unique, `default_trade_id` FK to Trade (nullable for sensitive), `level` 1–5, `severity_points` (12 × level), SLA hours above zero | 25 categories linked to default trades. |
+| 7 | Complaint | `complaint_id` | `raised_by` to Resident, `flat_id` to Flat, `common_area_id` to CommonArea, `zone_id` to Zone, `category_id` to ComplaintCategory, `duplicate_of` to Complaint, `status` to Status, `confirmed_by` to User | I1 to I9, domains for phase, handler (three values), priority, resolution and send-back reason, `version` at least 1, `reopen_count` between 0 and the limit | The central table. Holds `title` (varchar 150), `urgent_flag` (boolean default false), `clarification_question` (text), `clarification_reply` (text), `clarification_due_at` (timestamptz), and the redundant columns listed in section 9. |
+| 8 | TicketRole | `ticket_role_id` | `complaint_id` to Complaint, `trade_id` to Trade, `vendor_id` to Vendor, `assigned_by` to User | ( `complaint_id` , `trade_id` ) unique, `role_status` in three values (Open, In Progress, Done) | One named vendor per role. |
 | 9 | Vendor | `vendor_id` | `vendor_id` to User | `current_load` between 0 and `capacity` , `capacity` at least 0 | `current_load` is the semaphore counter. |
 | 10 | StatusHistory | `history_id` | `complaint_id` to Complaint, `ticket_role_id` to TicketRole, `actor_role_id` to Role, `actor_user_id` to User, `transition_id` to Transition | Append-only, `event_type` in seven values | Written by triggers. |
 | 11 | Role | `role_id` | none | `name` unique | Six rows, including System. |
@@ -69,10 +69,10 @@
 | 17 | VendorTrade | ( `vendor_id` , `trade_id` ) | `vendor_id` to Vendor, `trade_id` to Trade | none beyond keys | Many-to-many link. |
 | 18 | Attachment | `attachment_id` | `complaint_id` to Complaint, `ticket_role_id` to TicketRole, `uploaded_by` to User | none beyond keys | Stores a file reference only. |
 | 19 | ResidentHold | `hold_id` | `complaint_id` to Complaint | `hold_type` in two values, `ended_at` not before `started_at` , at most one open hold per complaint (proposed) | Intervals of resident-held time. |
-| 20 | Status | `status_code` | none | none beyond key | Five rows. |
+| 20 | Status | `status_code` | none | none beyond key | Six rows: Reported, In Progress, Completed, Escalated, Closed, Disputed. |
 | 21 | Transition | `transition_id` | `from_status` to Status, `to_status` to Status, `actor_role_id` to Role | The combination of `t_code` , `from_status` , `from_phase` , `to_status` , `to_phase` and `actor_role_id` is unique | The legal rows, with phases. |
 | 22 | Parameter | `param_key` | `updated_by` to User | none beyond key | Windows and limits. |
-| 23 | Notification | `notification_id` | `user_id` to User, `complaint_id` to Complaint | `notification_type` in five values | In-app notices. |
+| 23 | Notification | `notification_id` | `user_id` to User, `complaint_id` to Complaint | `notification_type` in five values | In-app notices. Holds `title` (varchar 150) and message body. |
 | 24 | OtpRequest | `otp_id` | none | `identifier` + active query indexed | Stores the SHA-256-hashed 6-digit OTP, its expiry, attempt counter and delivery channel. Rows are purged after expiry. |
 | 25 | UserSession | `session_id` (UUID) | `user_id` to User | none beyond key | Server-side refresh-token store. Enables immediate session revocation when an account is deactivated. |
 
@@ -82,7 +82,7 @@ The plain-language rules are in the State and State Transitions Document. This t
 
 | ID | Rule | Enforced by | Fails with | Scenario |
 |---|---|---|---|---|
-| I1 | `resolution` is filled exactly when status is Closed | Check constraint on Complaint | Write rejected | A reopen clears the resolution in the same update. |
+| I1 | `resolution` is filled exactly when status is Closed, or retained when status is Disputed during resident appeal; NULL for other open statuses | Check constraint on Complaint (`i1_resolution_closed`) | Write rejected | A dispute retains the contested closure verdict (Duplicate/Invalid/Unresolved) so the ZM can adjudicate. Reopening clears the resolution. |
 | I2 | `handler` is always filled | Not-null constraint and domain check | Write rejected | Delegating changes the handler from GM to ZM in one step. |
 | I3 | `confirmed_by` and `confirmed_at` are both empty or both filled | Check constraint | Write rejected | A confirmation sets both together. |
 | I4 | `confirmed_at` is filled once the phase is Assigned, Accepted, Working, Verifying or Confirming | Check constraint | Write rejected | The ZM's assign stamps the confirmation first. |
@@ -202,3 +202,18 @@ Everything not listed here is in 3NF. Each item below gets a reconciliation chec
 - Plan how personal data (phone numbers, email, avatar URLs) is protected and retained under the DPDP Act 2023.
 - Decide the migration and seed-data approach (synthetic data only).
 - Add a scheduled job to sweep expired `otp_request` rows (can piggyback on the existing SLA job).
+
+## 12. Priority Scoring Formula
+
+The system computes ticket score dynamically to rank tickets for dispatch and SLA escalation:
+
+$$\text{Ticket Score} = \text{Severity Points} + \text{Aging Points (0–60)} + \text{Boosts}$$
+
+* **Severity Points**: $12 \times \text{level}$ (Level 1: 12, Level 2: 24, Level 3: 36, Level 4: 48, Level 5: 60).
+* **Aging Points**: Caps at 60 points, reached at $1.5 \times \text{resolution SLA}$:
+  $$\text{Aging} = \min\left(60, \left\lfloor \frac{\text{Elapsed Hours}}{1.5 \times \text{SLA Hours}} \times 60 \right\rfloor\right)$$
+* **Boosts** (additive):
+  * **Urgent**: +15 points (Critical / Level 5 or urgent override)
+  * **Recurring**: +10 points (if recurring complaints $\ge 3$ within 90 days)
+  * **Rework**: +5 points per failed fix/rework round, capped at 15 points.
+* **Sensitive Categories**: Bypass regular queue and route directly to the General Manager.

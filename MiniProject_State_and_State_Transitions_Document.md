@@ -158,7 +158,7 @@ The database enforces these rules, and the application checks them before it wri
 
 | ID | Rule in plain words | Why we need it | Scenario |
 |---|---|---|---|
-| I1 | `resolution` is filled exactly when the status is Closed. | A closed ticket always has an outcome and an open ticket never has one. | A reopen (T39) clears the resolution in the same update. |
+| I1 | `resolution` is filled exactly when the status is Closed, or retained when the status is Disputed during resident appeal; NULL for other open statuses. | A closed ticket always has an outcome. A disputed ticket holds the contested resolution so the ZM/GM can adjudicate. Other open tickets have none. | A resident disputes an Invalid closure; status moves to Disputed while preserving resolution = 'Invalid'. Reopening clears it. |
 | I2 | `handler` is always filled. | Every ticket has a desk that owns the next decision. | T30 changes the handler from GM to ZM in one step. |
 | I3 | `confirmed_by` and `confirmed_at` are both empty or both filled. | Who and when must travel together. | T4 sets both in one step. |
 | I4 | `confirmed_at` is filled once the phase is Assigned, Accepted, Working, Verifying or Confirming. | No work starts on an unconfirmed ticket. | The ZM's assign (T15) stamps the confirmation before the phase changes. |
