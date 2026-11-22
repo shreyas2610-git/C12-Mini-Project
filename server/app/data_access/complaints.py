@@ -330,6 +330,7 @@ async def list_complaints(
         })
 
     for c in complaints:
+        c["location_type"] = "Flat" if c.get("flat_id") is not None else "CommonArea"
         c["roles"] = role_map.get(c["complaint_id"], [])
 
     return complaints
