@@ -571,7 +571,7 @@ export function ZoneManagerDashboard({ user, onNavigate }: ZMDashboardProps) {
 
                         {/* Right Action Buttons */}
                         <div className="flex items-center gap-2 flex-wrap self-end sm:self-center">
-                          {isTriage && (
+                          {isTriage && !item.confirmed_at && (
                             <>
                               <button
                                 onClick={() => handleConfirm(item)}
@@ -909,7 +909,7 @@ export function ZoneManagerDashboard({ user, onNavigate }: ZMDashboardProps) {
 
             {/* Quick Action Buttons inside Details */}
             <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-              {selectedTicket.phase === 'Triage' && (
+              {selectedTicket.phase === 'Triage' && !selectedTicket.confirmed_at && (
                 <>
                   <button
                     onClick={() => handleConfirm(selectedTicket)}
