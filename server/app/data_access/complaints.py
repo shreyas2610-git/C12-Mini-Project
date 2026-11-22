@@ -904,7 +904,7 @@ async def coordinator_confirm_and_route(
                 confirmed_at = NOW(),
                 handler = $2,
                 zone_id = $3,
-                phase = 'Assigned'
+                phase = 'Triage'
             WHERE complaint_id = $4
             """,
             user["user_id"],

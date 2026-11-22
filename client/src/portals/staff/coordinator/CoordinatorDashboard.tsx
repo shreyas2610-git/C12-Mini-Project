@@ -595,7 +595,7 @@ export function CoordinatorDashboard({ user, onNavigate }: CoordinatorDashboardP
           ) : (
             <div className="divide-y divide-gray-100">
               {displayed.map((c) => {
-                const canTriage = c.status === 'Reported' || c.handler === 'Coordinator'
+                const canTriage = c.status === 'Reported' && c.handler === 'Coordinator'
 
                 return (
                   <div
