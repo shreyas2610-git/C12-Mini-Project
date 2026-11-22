@@ -137,7 +137,7 @@ export async function apiTakeOver(id: number, version: number): Promise<Complain
 }
 
 export async function apiConfirm(id: number, version: number): Promise<Complaint> {
-  return request<Complaint>(`${BASE}/${id}/confirm`, {
+  return request<Complaint>(`${BASE}/${id}/zm-confirm`, {
     method: 'POST',
     body: JSON.stringify({ version }),
   })
