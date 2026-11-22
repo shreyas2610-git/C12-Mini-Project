@@ -571,15 +571,17 @@ export function ZoneManagerDashboard({ user, onNavigate }: ZMDashboardProps) {
 
                         {/* Right Action Buttons */}
                         <div className="flex items-center gap-2 flex-wrap self-end sm:self-center">
-                          {isTriage && !item.confirmed_at && (
+                          {isTriage && (
                             <>
-                              <button
-                                onClick={() => handleConfirm(item)}
-                                disabled={actionLoading}
-                                className="flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition"
-                              >
-                                <Check className="h-3.5 w-3.5" /> Confirm
-                              </button>
+                              {!item.confirmed_at && (
+                                <button
+                                  onClick={() => handleConfirm(item)}
+                                  disabled={actionLoading}
+                                  className="flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition"
+                                >
+                                  <Check className="h-3.5 w-3.5" /> Confirm
+                                </button>
+                              )}
                               <button
                                 onClick={() => openActionModal(item, 'assign')}
                                 className="flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
@@ -909,15 +911,17 @@ export function ZoneManagerDashboard({ user, onNavigate }: ZMDashboardProps) {
 
             {/* Quick Action Buttons inside Details */}
             <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-              {selectedTicket.phase === 'Triage' && !selectedTicket.confirmed_at && (
+              {selectedTicket.phase === 'Triage' && (
                 <>
-                  <button
-                    onClick={() => handleConfirm(selectedTicket)}
-                    disabled={actionLoading}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                  >
-                    Confirm Genuine
-                  </button>
+                  {!selectedTicket.confirmed_at && (
+                    <button
+                      onClick={() => handleConfirm(selectedTicket)}
+                      disabled={actionLoading}
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                    >
+                      Confirm Genuine
+                    </button>
+                  )}
                   <button
                     onClick={() => openActionModal(selectedTicket, 'assign')}
                     className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
