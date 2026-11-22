@@ -72,13 +72,6 @@ export interface Complaint {
   roles: RoleItem[]
 }
 
-export interface ComplaintListResponse {
-  items: Complaint[]
-  total: number
-  page: number
-  page_size: number
-}
-
 export interface Vendor {
   vendor_id: number
   company_name: string
@@ -116,7 +109,7 @@ export async function fetchZMComplaints(params?: {
   priority?: string
   page?: number
   page_size?: number
-}): Promise<ComplaintListResponse> {
+}): Promise<Complaint[]> {
   const query = new URLSearchParams()
   if (params?.status) query.append('status', params.status)
   if (params?.phase) query.append('phase', params.phase)
@@ -125,7 +118,7 @@ export async function fetchZMComplaints(params?: {
   if (params?.page) query.append('page', String(params.page))
   if (params?.page_size) query.append('page_size', String(params.page_size))
 
-  return request<ComplaintListResponse>(`${BASE}?${query.toString()}`)
+  return request<Complaint[]>(`${BASE}?${query.toString()}`)
 }
 
 export async function fetchComplaintById(id: number): Promise<Complaint> {

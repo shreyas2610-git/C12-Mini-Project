@@ -97,7 +97,7 @@ export function ZoneManagerDashboard({ user, onNavigate }: ZMDashboardProps) {
       ])
       setStats(dashData)
       setQueue(queueData)
-      setComplaints(allData.items)
+      setComplaints(allData)
       setVendors(vendorData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard data')
@@ -313,7 +313,7 @@ export function ZoneManagerDashboard({ user, onNavigate }: ZMDashboardProps) {
     setEscalateReason('')
   }
 
-  const filteredComplaints = complaints.filter((c) => {
+  const filteredComplaints = complaints?.filter((c) => {
     if (!searchTerm) return true
     const term = searchTerm.toLowerCase()
     return (
@@ -323,7 +323,7 @@ export function ZoneManagerDashboard({ user, onNavigate }: ZMDashboardProps) {
       (c.category_name && c.category_name.toLowerCase().includes(term)) ||
       String(c.complaint_id).includes(term)
     )
-  })
+  }) ?? []
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
