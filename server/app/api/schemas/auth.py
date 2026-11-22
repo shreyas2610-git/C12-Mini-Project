@@ -50,6 +50,17 @@ class TokenResponse(BaseModel):
     user_id: int
     full_name: str
     role: str
+    zone_id: int | None = None
+    zone_name: str | None = None
+
+
+class UserProfileOut(BaseModel):
+    user_id: int
+    full_name: str
+    email: EmailStr
+    role: str
+    zone_id: int | None = None
+    zone_name: str | None = None
 
 
 class TowerOut(BaseModel):

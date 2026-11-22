@@ -1,6 +1,6 @@
 # 🌐 API Design Document
 
-> 📌 Working draft v0.4. Related engines: E4 Access and Interface (Shreyas) and E5 Rule Enforcement (shared). Version 0.4 restores password authentication alongside OTP and Google OAuth. The sign-up format is email + password + phone with role-specific intake (Option A single-form). New public registration (`POST /auth/register`) and password login (`POST /auth/login`) endpoints are active, while OTP (`POST /auth/otp/request`, `POST /auth/otp/verify`) remains as an alternative sign-in method. Total active endpoints: **78**.
+> 📌 Working draft v0.5. Related engines: E4 Access and Interface (Shreyas) and E5 Rule Enforcement (shared). Version 0.5 activates the Zone Manager Portal workflow endpoints (`GET /complaints/queue` with Rule C11 queue scoring, `GET /complaints/dashboard`, `GET /complaints/vendors`, take-over T10, confirm T11, send-back T12/T13, assign T15, verify T21, rework T22/T44, dispute-decision T37/T38, escalate T24, close-duplicate T7). Auth endpoints (`POST /auth/login`, `POST /auth/register`, and new `GET /auth/me`) now populate `zone_id` and `zone_name` for ZM users using the 1:1 `zone.zm_user_id` mapping to enforce `OWN_ZONE` query scoping without schema modification.
 
 1. Endpoint count
 2. Conventions

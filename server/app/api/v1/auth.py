@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
+from app.api.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserProfileOut
+from app.auth.dependencies import get_current_user
 from app.auth.jwt import create_access_token, create_refresh_token
 from app.auth.passwords import hash_password, verify_password
 from app.core.exceptions import (
@@ -25,7 +26,13 @@ router = APIRouter()
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
-def _build_token_response(user_id: int, full_name: str, role_name: str) -> TokenResponse:
+def _build_token_response(
+    user_id: int,
+    full_name: str,
+    role_name: str,
+    zone_id: int | None = None,
+    zone_name: str | None = None,
+) -> TokenResponse:
     token_data = {"sub": str(user_id), "role": role_name}
     return TokenResponse(
         access_token=create_access_token(token_data),
@@ -33,6 +40,8 @@ def _build_token_response(user_id: int, full_name: str, role_name: str) -> Token
         user_id=user_id,
         full_name=full_name,
         role=role_name,
+        zone_id=zone_id,
+        zone_name=zone_name,
     )
 
 
@@ -127,4 +136,25 @@ async def login(body: LoginRequest, conn=Depends(get_conn)) -> TokenResponse:
     if not user["is_active"]:
         raise credentials_exception
 
-    return _build_token_response(user["user_id"], user["full_name"], user["role_name"])
+    return _build_token_response(
+        user["user_id"],
+        user["full_name"],
+        user["role_name"],
+        zone_id=user.get("zone_id"),
+        zone_name=user.get("zone_name"),
+    )
+
+
+# ── GET /auth/me ─────────────────────────────────────────────────────────────
+
+@router.get("/me", response_model=UserProfileOut)
+async def get_my_profile(current_user: dict = Depends(get_current_user)) -> UserProfileOut:
+    """Return the profile and role details of the currently authenticated user."""
+    return UserProfileOut(
+        user_id=current_user["user_id"],
+        full_name=current_user["full_name"],
+        email=current_user["email"],
+        role=current_user["role_name"],
+        zone_id=current_user.get("zone_id"),
+        zone_name=current_user.get("zone_name"),
+    )

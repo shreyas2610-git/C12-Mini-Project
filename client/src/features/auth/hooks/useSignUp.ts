@@ -62,6 +62,8 @@ export function useSignUp({ onSuccess }: UseSignUpOptions) {
         user_id: data.user_id,
         full_name: data.full_name,
         role: data.role,
+        zone_id: data.zone_id,
+        zone_name: data.zone_name,
       })
       onSuccess()
     } catch (err) {

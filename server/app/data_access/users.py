@@ -35,9 +35,12 @@ async def get_user_by_email(conn, email: str) -> dict[str, Any] | None:
             u.password_hash,
             u.auth_provider,
             u.is_active,
-            u.created_at
+            u.created_at,
+            z.zone_id,
+            z.name      AS zone_name
         FROM "user" u
         JOIN role r ON r.role_id = u.role_id
+        LEFT JOIN zone z ON z.zm_user_id = u.user_id
         WHERE u.email = $1
         """,
         email,

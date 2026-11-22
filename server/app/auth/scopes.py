@@ -11,15 +11,10 @@ def require_role(*roles: str) -> Any:
     Dependency factory that restricts access to users whose ``role_name``
     is one of the provided *roles*.
 
-    Usage::
-
-        @router.get("/admin", dependencies=[require_role("GM", "ZM")])
-        async def admin_route(): ...
-
-        # — or — inject the user record at the same time:
+    Usage:
         @router.get("/admin")
-        async def admin_route(current_user=require_role("GM")):
-            return current_user
+        async def admin_route(current_user: dict = Depends(require_role("GM", "ZM"))):
+            ...
     """
 
     async def _checker(
@@ -29,4 +24,4 @@ def require_role(*roles: str) -> Any:
             raise forbidden_exception
         return current_user
 
-    return Depends(_checker)
+    return _checker

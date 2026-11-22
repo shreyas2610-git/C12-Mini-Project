@@ -27,6 +27,8 @@ export function LoginPage({ onNavigate }: LoginPageProps) {
         user_id: data.user_id,
         full_name: data.full_name,
         role: data.role,
+        zone_id: data.zone_id,
+        zone_name: data.zone_name,
       })
       onNavigate('dashboard')
     } catch (err) {

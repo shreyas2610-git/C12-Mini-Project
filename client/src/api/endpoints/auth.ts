@@ -24,6 +24,8 @@ export interface TokenResponse {
   user_id: number
   full_name: string
   role: string
+  zone_id?: number | null
+  zone_name?: string | null
 }
 
 export async function registerUser(payload: RegisterPayload): Promise<TokenResponse> {

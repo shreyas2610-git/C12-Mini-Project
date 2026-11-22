@@ -35,9 +35,12 @@ async def get_current_user(
             r.name  AS role_name,
             u.full_name,
             u.email,
-            u.is_active
+            u.is_active,
+            z.zone_id,
+            z.name  AS zone_name
         FROM "user" u
         JOIN role r ON r.role_id = u.role_id
+        LEFT JOIN zone z ON z.zm_user_id = u.user_id
         WHERE u.user_id = $1
         """,
         user_id,
