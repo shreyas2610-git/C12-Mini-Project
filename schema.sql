@@ -1,10 +1,10 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 --  Mini Project Team 12 – Complete Database Schema
 --  Engine   : PostgreSQL (Neon – Connection Pooling ON)
---  Version  : v0.3 (adds OTP + Google OAuth – auth_provider, otp_request,
---             user_session; updates user table)
---  Tables   : 25 (22 entity + 2 junction + 1 session)  |  Attributes : ~155
---  FK       : 41   |   Invariants : I1–I9
+--  Version  : v0.5 (Complaint Categories linked to Trades, TicketRole 3-state model,
+--             Priority scoring, Zone Manager & Vendor load fields, Complete seed baseline)
+--  Tables   : 25 (22 entity + 2 junction + 1 session)  |  Attributes : ~162
+--  FK       : 42   |   Invariants : I1–I9
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- ──────────────────────────────
@@ -21,7 +21,7 @@ CREATE TYPE handler_type      AS ENUM ('Coordinator', 'ZM', 'GM');
 CREATE TYPE phase_type        AS ENUM ('Triage', 'Awaiting Resident', 'Assigned', 'Accepted', 'Working', 'Verifying', 'Confirming');
 CREATE TYPE resolution_type   AS ENUM ('Fixed', 'Unresolved', 'Duplicate', 'Invalid', 'Withdrawn');
 CREATE TYPE sendback_reason   AS ENUM ('Wrong zone', 'Not genuine');
-CREATE TYPE role_status_type  AS ENUM ('Unassigned', 'Offered', 'Accepted', 'Started', 'Done');
+CREATE TYPE role_status_type  AS ENUM ('Open', 'In Progress', 'Done');
 CREATE TYPE event_type        AS ENUM ('STATUS_CHANGE', 'PHASE_CHANGE', 'HANDLER_CHANGE', 'CONFIRMED', 'CONFIRM_CLEARED', 'ROLE_EVENT', 'FIELD_CHANGE');
 CREATE TYPE hold_type         AS ENUM ('AWAITING_RESIDENT', 'CONFIRMATION_WAIT');
 CREATE TYPE scope_type        AS ENUM ('OWN_FLAT', 'OWN_ZONE', 'OWN_JOBS', 'ESCALATED_ONLY', 'TOWNSHIP');
@@ -65,9 +65,10 @@ CREATE TABLE "user" (
 --  TABLE 1 : Zone
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE zone (
-    zone_id     SERIAL       PRIMARY KEY,
-    name        VARCHAR(100) NOT NULL UNIQUE,
-    zm_user_id  INT          UNIQUE REFERENCES "user"(user_id)   -- 1:1, nullable
+    zone_id          SERIAL       PRIMARY KEY,
+    name             VARCHAR(100) NOT NULL UNIQUE,
+    zm_user_id       INT          UNIQUE REFERENCES "user"(user_id),   -- 1:1, nullable
+    zone_manager_id  INT          UNIQUE REFERENCES "user"(user_id)    -- alias / direct FK
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -107,15 +108,26 @@ CREATE TABLE resident (
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════
+--  TABLE 16 : Trade   (defined before ComplaintCategory for foreign key reference)
+-- ═══════════════════════════════════════════════════════════════════════════
+CREATE TABLE trade (
+    trade_id  SERIAL       PRIMARY KEY,
+    name      VARCHAR(80)  NOT NULL UNIQUE
+);
+
+-- ═══════════════════════════════════════════════════════════════════════════
 --  TABLE 6 : ComplaintCategory
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE complaint_category (
     category_id      SERIAL          PRIMARY KEY,
     name             VARCHAR(100)    NOT NULL UNIQUE,
     severity         severity_level  NOT NULL,
+    level            INT             NOT NULL DEFAULT 1 CHECK (level BETWEEN 1 AND 5),
+    severity_points  INT             NOT NULL DEFAULT 12 CHECK (severity_points BETWEEN 12 AND 60),
     response_sla_h   INT             NOT NULL CHECK (response_sla_h > 0),
     resolution_sla_h INT             NOT NULL CHECK (resolution_sla_h > 0),
     is_sensitive     BOOLEAN         NOT NULL DEFAULT FALSE,
+    default_trade_id INT             REFERENCES trade(trade_id),
     is_active        BOOLEAN         NOT NULL DEFAULT TRUE
 );
 
@@ -150,6 +162,7 @@ CREATE TABLE complaint (
     -- ─ Identity ──────────────────────────────────────────
     complaint_id      SERIAL          PRIMARY KEY,
     raised_by         INT             NOT NULL REFERENCES resident(resident_id),
+    title             VARCHAR(150),
     description       TEXT            NOT NULL,
     submitted_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
@@ -161,6 +174,7 @@ CREATE TABLE complaint (
     -- ─ Classification ────────────────────────────────────
     category_id       INT             NOT NULL REFERENCES complaint_category(category_id),
     priority          severity_level,
+    urgent_flag       BOOLEAN         NOT NULL DEFAULT FALSE,
     recurring_flag    BOOLEAN         NOT NULL DEFAULT FALSE,
     duplicate_of      INT             REFERENCES complaint(complaint_id),
 
@@ -191,15 +205,24 @@ CREATE TABLE complaint (
     disputed_at        TIMESTAMPTZ,
     alerted_at         TIMESTAMPTZ,
 
+    -- ─ Clarification ─────────────────────────────────────
+    clarification_question TEXT,
+    clarification_reply    TEXT,
+    clarification_due_at   TIMESTAMPTZ,
+
+    -- ─ Scoring ──────────────────────────────────────────
+    priority_score     INT            NOT NULL DEFAULT 0,
+
     -- ─ Concurrency ──────────────────────────────────────
     version            INT            NOT NULL DEFAULT 1 CHECK (version >= 1),
 
     -- ═══════ Integrity invariants ═══════════════════════
 
-    -- I1 : resolution filled exactly when status is Closed
+    -- I1 : resolution filled exactly when status is Closed or Disputed
     CONSTRAINT i1_resolution_closed CHECK (
         (status = 'Closed'   AND resolution IS NOT NULL) OR
-        (status <> 'Closed'  AND resolution IS NULL)
+        (status = 'Disputed') OR
+        (status NOT IN ('Closed', 'Disputed') AND resolution IS NULL)
     ),
 
     -- I2 : handler always filled   →  NOT NULL above
@@ -227,10 +250,12 @@ CREATE TABLE complaint (
         (flat_id IS NULL     AND common_area_id IS NOT NULL)
     ),
 
-    -- I8 : the (status, phase) pair must be one of the 10 allowed pairs
+    -- I8 : the (status, phase) pair must be one of the allowed pairs
     CONSTRAINT i8_status_phase CHECK (
         (status = 'Reported'     AND phase IN ('Triage', 'Awaiting Resident', 'Assigned')) OR
         (status = 'In Progress'  AND phase IN ('Assigned', 'Accepted', 'Working'))         OR
+        (status = 'Completed'    AND phase IN ('Verifying', 'Confirming', 'Working', 'Assigned')) OR
+        (status = 'Escalated'    AND phase IN ('Triage', 'Assigned', 'Working', 'Verifying', 'Confirming')) OR
         (status = 'Under Review' AND phase IN ('Verifying', 'Confirming'))                  OR
         (status = 'Closed'       AND phase IS NULL)                                         OR
         (status = 'Disputed'     AND phase IS NULL)
@@ -241,21 +266,17 @@ CREATE TABLE complaint (
 --  TABLE 9 : Vendor   (subtype of User, shared PK)
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE vendor (
-    vendor_id     INT           PRIMARY KEY REFERENCES "user"(user_id),
-    company_name  VARCHAR(150)  NOT NULL,
-    capacity      INT           NOT NULL CHECK (capacity >= 0),
-    current_load  INT           NOT NULL DEFAULT 0,
-    is_active     BOOLEAN       NOT NULL DEFAULT TRUE,
+    vendor_id           INT           PRIMARY KEY REFERENCES "user"(user_id),
+    company_name        VARCHAR(150)  NOT NULL,
+    capacity            INT           NOT NULL CHECK (capacity >= 0) DEFAULT 3,
+    max_concurrent_jobs INT           NOT NULL CHECK (max_concurrent_jobs >= 1) DEFAULT 3,
+    current_load        INT           NOT NULL DEFAULT 0,
+    active_load         INT           NOT NULL DEFAULT 0 CHECK (active_load >= 0),
+    is_active           BOOLEAN       NOT NULL DEFAULT TRUE,
     CONSTRAINT vendor_load_cap CHECK (current_load BETWEEN 0 AND capacity)
 );
 
--- ═══════════════════════════════════════════════════════════════════════════
---  TABLE 16 : Trade
--- ═══════════════════════════════════════════════════════════════════════════
-CREATE TABLE trade (
-    trade_id  SERIAL       PRIMARY KEY,
-    name      VARCHAR(80)  NOT NULL UNIQUE
-);
+
 
 -- ═══════════════════════════════════════════════════════════════════════════
 --  TABLE 17 : VendorTrade   (junction – M:N)
@@ -274,7 +295,7 @@ CREATE TABLE ticket_role (
     complaint_id    INT              NOT NULL REFERENCES complaint(complaint_id),
     trade_id        INT              NOT NULL REFERENCES trade(trade_id),
     vendor_id       INT              REFERENCES vendor(vendor_id),
-    role_status     role_status_type NOT NULL DEFAULT 'Unassigned',
+    role_status     role_status_type NOT NULL DEFAULT 'Open',
     assigned_by     INT              REFERENCES "user"(user_id),
     offered_at      TIMESTAMPTZ,
     offer_due_at    TIMESTAMPTZ,
@@ -367,6 +388,7 @@ CREATE TABLE notification (
     user_id            INT                NOT NULL REFERENCES "user"(user_id),
     complaint_id       INT                REFERENCES complaint(complaint_id),
     notification_type  notification_type  NOT NULL,
+    title              VARCHAR(150),
     message            TEXT               NOT NULL,
     created_at         TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
     read_at            TIMESTAMPTZ
@@ -506,13 +528,19 @@ INSERT INTO "role" (name, has_login) VALUES
     ('GM',          TRUE),
     ('System',      FALSE);
 
--- ── Statuses (5 rows) ────────────────────────────────────
+-- ── Statuses (7 rows) ────────────────────────────────────
 INSERT INTO status (status_code, label, is_open) VALUES
     ('Reported',     'Reported',      TRUE),
     ('In Progress',  'In Progress',   TRUE),
+    ('Completed',    'Completed',     TRUE),
+    ('Escalated',    'Escalated',     TRUE),
     ('Under Review', 'Under Review',  TRUE),
     ('Closed',       'Closed',        FALSE),
     ('Disputed',     'Disputed',      TRUE);
+
+-- NOTE: For full system baseline seed data (11 Trades, 25 Complaint Categories,
+-- 6 Common Areas, 14 Actions, 26 RolePermissions, 48 Transitions, 14 Parameters,
+-- 37 Users, 23 Vendors, 20 Sample Tickets), see database/seeds/seed_all.sql.
 
 
 -- ═══════════════════════════════════════════════════════════════════════════

@@ -87,19 +87,23 @@ PK is the primary key and FK is a foreign key. The Null column says whether the 
 
 | Attribute | Key | Null | Meaning |
 |---|---|---|---|
-| `category_id` | PK | No | Unique id of the category. |
-| `name` | Unique | No | Name of the category. |
-| `severity` | | No | Low, Medium, High or Critical. Used to rank the queue and to pick the vendor reply time. |
-| `response_sla_h` | | No | Target hours from submission to first acceptance. |
-| `resolution_sla_h` | | No | Target hours from first acceptance until the ticket reaches Confirming. |
-| `is_sensitive` | | No | When true, a recurring complaint in this category goes straight to the GM. |
-| `is_active` | | No | Lets the GM retire a category without deleting old tickets. |
+| `category_id` | PK | No | Unique identifier of the category. |
+| `name` | Unique | No | Name of the issue category. |
+| `severity` | | No | Severity level: `Low`, `Medium`, `High`, `Critical`. |
+| `level` | | No | Numeric severity level (1 to 5). |
+| `severity_points` | | No | Points assigned to severity: 12 × level (12 to 60). |
+| `response_sla_h` | | No | Initial response SLA target in hours. |
+| `resolution_sla_h` | | No | Total resolution SLA target in hours. |
+| `default_trade_id` | FK to Trade | Yes | Default trade assigned to tickets of this category (NULL for sensitive). |
+| `is_sensitive` | | No | Sensitive complaints route directly to General Manager. |
+| `is_active` | | No | Active flag for category availability. |
 
 ### 3.7 Complaint
 
 | Group | Attribute | Key | Null | Meaning |
 |---|---|---|---|---|
 | Identity | `complaint_id` | PK | No | Unique ticket number. |
+| Identity | `title` | | No | Short headline/subject line of the complaint (e.g. "Kitchen tap leaking"). |
 | Identity | `raised_by` | FK to Resident | No | The resident who raised the complaint. |
 | Identity | `description` | | No | The resident's own words about the problem. |
 | Identity | `submitted_at` | | No | Time of submission. It starts the response clock and is the base for queue aging. |
@@ -108,6 +112,7 @@ PK is the primary key and FK is a foreign key. The Null column says whether the 
 | Location | `zone_id` | FK to Zone | No | Zone derived from the location at submission and recomputed when the location is corrected. Stored so scope filters stay fast. |
 | Classification | `category_id` | FK to ComplaintCategory | No | The kind of complaint. The Coordinator or ZM may correct it while the ticket is Reported. |
 | Classification | `priority` | | Yes, until set | Low, Medium, High or Critical, set by the Coordinator or ZM. It starts as the category severity (proposed). |
+| Classification | `urgent_flag` | | No | Emergency safety flag marked by resident or staff (+15 points to priority score). Default FALSE. |
 | Classification | `recurring_flag` | | No | True when the recurrence check found the threshold reached. |
 | Classification | `duplicate_of` | FK to Complaint | Yes | The open original, filled when the ticket is closed as Duplicate. |
 | Workflow state | `status` | FK to Status | No | Current status, one of the five the resident sees. |
@@ -120,10 +125,13 @@ PK is the primary key and FK is a foreign key. The Null column says whether the 
 | Workflow state | `send_back_count` | | No | How many times the ZM has sent the ticket back (proposed). The second send-back escalates. |
 | Workflow state | `send_back_reason` | | Yes | Wrong zone or Not genuine, while a send-back stands (proposed). |
 | Workflow state | `reopen_count` | | No | Failed-fix verdicts so far, counting ZM rework and resident rejections. The limit is 2. |
-| Outcome | `resolution` | | Yes, until Closed | Fixed, Unresolved, Duplicate, Invalid or Withdrawn. |
+| Outcome | `resolution` | | Yes, until Closed | Fixed, Unresolved, Duplicate, Invalid or Withdrawn. Preserved while status = 'Disputed' during appeal. |
 | Outcome | `resolution_note` | | Yes | Free text, including the GM's reason for Unresolved. |
 | Clocks and windows | `response_due_at` | | No | Submission plus the category's response target. Resident-held time is added back when breaches are judged (proposed). |
 | Clocks and windows | `resolution_due_at` | | Yes | First acceptance plus the category's resolution target. A GM reassignment sets a new value and ZM rework does not. |
+| Clocks and windows | `clarification_question` | | Yes | Clarification question posed by coordinator during triage hold. |
+| Clocks and windows | `clarification_reply` | | Yes | Clarification answer submitted by resident within 72h window. |
+| Clocks and windows | `clarification_due_at` | | Yes | Deadline for resident clarification (72h after question asked). Holds the SLA clock. |
 | Clocks and windows | `first_accepted_at` | | Yes | When the first vendor accepted. It stops the response clock, starts the resolution clock and shows that vendor work has begun. While it is empty an open ticket is Reported. |
 | Clocks and windows | `resolved_at` | | Yes | When the ticket entered phase Confirming. Cleared if the resident rejects the fix. |
 | Clocks and windows | `closed_at` | | Yes | When the ticket closed. Base of the 7 day reopen window. |
@@ -297,6 +305,7 @@ PK is the primary key and FK is a foreign key. The Null column says whether the 
 | `notification_id` | PK | No | Unique id of the notice. |
 | `user_id` | FK to User | No | The person who receives it. |
 | `complaint_id` | FK to Complaint | Yes | The ticket it is about, when there is one. |
+| `title` | | No | Short headline/subject line of the notification. |
 | `notification_type` | | No | CLARIFICATION_REQUEST, FIX_CONFIRMATION, STATUS_UPDATE, SLA_ALERT or DISPUTE_UPDATE. |
 | `message` | | No | Text shown to the user. |
 | `created_at` | | No | When the notice was created. |

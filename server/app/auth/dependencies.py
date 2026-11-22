@@ -17,10 +17,11 @@ async def get_current_user(
     """
     FastAPI dependency that validates the Bearer token and returns the
     authenticated user as a dict with keys:
-        user_id, role_id, role_name, full_name, email, is_active
+        user_id, role_id, role_name, full_name, email, is_active,
+        flat_id, flat_number, tower_id, tower_name, zone_id, zone_name
     Raises HTTP 401 if the token is invalid or the user is inactive.
     """
-    payload = decode_token(token)  # raises 401 on failure
+    payload = decode_token(token)
 
     try:
         user_id = int(payload["sub"])
@@ -36,11 +37,19 @@ async def get_current_user(
             u.full_name,
             u.email,
             u.is_active,
-            z.zone_id,
-            z.name  AS zone_name
+            res.flat_id,
+            f.flat_number,
+            f.tower_id,
+            t.name  AS tower_name,
+            COALESCE(z.zone_id, t.zone_id) AS zone_id,
+            COALESCE(z.name, tz.name)      AS zone_name
         FROM "user" u
         JOIN role r ON r.role_id = u.role_id
         LEFT JOIN zone z ON z.zm_user_id = u.user_id
+        LEFT JOIN resident res ON res.resident_id = u.user_id
+        LEFT JOIN flat f ON f.flat_id = res.flat_id
+        LEFT JOIN tower t ON t.tower_id = f.tower_id
+        LEFT JOIN zone tz ON tz.zone_id = t.zone_id
         WHERE u.user_id = $1
         """,
         user_id,
