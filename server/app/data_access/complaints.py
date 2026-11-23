@@ -735,11 +735,11 @@ async def coordinator_request_clarification(
 ) -> None:
     async with conn.transaction():
         c = await conn.fetchrow(
-            "SELECT raised_by, status, phase::text as phase, handler::text as handler FROM complaint WHERE complaint_id = $1",
+            "SELECT raised_by, status, phase::text as phase, handler::text as handler FROM complaint WHERE complaint_id = $1 AND handler = 'Coordinator'",
             complaint_id,
         )
         if not c:
-            raise not_found_exception("Complaint not found.")
+            raise not_found_exception("Complaint not found or not on Coordinator's desk.")
         if c["status"] != "Reported":
             raise bad_request_exception("Clarification can only be requested on Reported tickets.")
 
@@ -814,6 +814,7 @@ async def coordinator_close_invalid(
                 closed_at = NOW(),
                 dispute_due_at = NOW() + INTERVAL '7 days'
             WHERE complaint_id = $2
+              AND handler = 'Coordinator'
             """,
             reason,
             complaint_id,
@@ -853,6 +854,7 @@ async def coordinator_close_duplicate(
                 closed_at = NOW(),
                 dispute_due_at = NOW() + INTERVAL '7 days'
             WHERE complaint_id = $3
+              AND handler = 'Coordinator'
             """,
             duplicate_of,
             reason or f"Duplicate of ticket #{duplicate_of}",
@@ -887,11 +889,12 @@ async def coordinator_confirm_and_route(
             FROM complaint c
             JOIN complaint_category cat ON cat.category_id = c.category_id
             WHERE c.complaint_id = $1
+              AND c.handler = 'Coordinator'
             """,
             complaint_id,
         )
         if not c:
-            raise not_found_exception("Complaint not found.")
+            raise not_found_exception("Complaint not found or not on Coordinator's desk.")
 
         target_handler = "GM" if c["is_sensitive"] else "ZM"
         target_zone = zone_id or c["zone_id"]
@@ -944,11 +947,12 @@ async def coordinator_hand_off(
             FROM complaint c
             JOIN complaint_category cat ON cat.category_id = c.category_id
             WHERE c.complaint_id = $1
+              AND c.handler = 'Coordinator'
             """,
             complaint_id,
         )
         if not c:
-            raise not_found_exception("Complaint not found.")
+            raise not_found_exception("Complaint not found or not on Coordinator's desk.")
 
         target_handler = "GM" if c["is_sensitive"] else "ZM"
         target_zone = zone_id or c["zone_id"]
@@ -996,11 +1000,11 @@ async def coordinator_change_category(
             raise not_found_exception("New category not found.")
 
         c = await conn.fetchrow(
-            "SELECT urgent_flag, submitted_at FROM complaint WHERE complaint_id = $1",
+            "SELECT urgent_flag, submitted_at FROM complaint WHERE complaint_id = $1 AND handler = 'Coordinator'",
             complaint_id,
         )
         if not c:
-            raise not_found_exception("Complaint not found.")
+            raise not_found_exception("Complaint not found or not on Coordinator's desk.")
 
         urgent_boost = 15 if c["urgent_flag"] else 0
         new_score = cat["severity_points"] + urgent_boost
@@ -1343,7 +1347,7 @@ async def zm_take_over(
 ) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
-            "SELECT version, handler, status, phase, zone_id FROM complaint WHERE complaint_id = $1 FOR UPDATE",
+            "SELECT version, handler, status, phase, zone_id FROM complaint WHERE complaint_id = $1 AND handler = 'ZM' FOR UPDATE",
             complaint_id,
         )
         if not row or row["zone_id"] != zone_id:
@@ -1376,7 +1380,7 @@ async def zm_confirm(
 ) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
-            "SELECT version, confirmed_by, zone_id FROM complaint WHERE complaint_id = $1 FOR UPDATE",
+            "SELECT version, confirmed_by, zone_id FROM complaint WHERE complaint_id = $1 AND handler = 'ZM' FOR UPDATE",
             complaint_id,
         )
         if not row or row["zone_id"] != zone_id:
@@ -1412,7 +1416,7 @@ async def zm_send_back(
 ) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
-            "SELECT version, send_back_count, zone_id FROM complaint WHERE complaint_id = $1 FOR UPDATE",
+            "SELECT version, send_back_count, zone_id FROM complaint WHERE complaint_id = $1 AND handler = 'ZM' FOR UPDATE",
             complaint_id,
         )
         if not row or row["zone_id"] != zone_id:
@@ -1430,7 +1434,6 @@ async def zm_send_back(
                     handler = 'Coordinator',
                     confirmed_by = NULL,
                     confirmed_at = NULL,
-                    zm_acted_at = NULL,
                     version = version + 1
                 WHERE complaint_id = $1
                 """,
@@ -1466,7 +1469,7 @@ async def zm_assign_vendors(
 ) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
-            "SELECT version, status, phase, zone_id FROM complaint WHERE complaint_id = $1 FOR UPDATE",
+            "SELECT version, status, phase, zone_id FROM complaint WHERE complaint_id = $1 AND handler = 'ZM' FOR UPDATE",
             complaint_id,
         )
         if not row or row["zone_id"] != zone_id:
@@ -1531,7 +1534,7 @@ async def zm_verify(
 ) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
-            "SELECT version, status, phase, zone_id FROM complaint WHERE complaint_id = $1 FOR UPDATE",
+            "SELECT version, status, phase, zone_id FROM complaint WHERE complaint_id = $1 AND handler = 'ZM' FOR UPDATE",
             complaint_id,
         )
         if not row or row["zone_id"] != zone_id:
@@ -1566,7 +1569,7 @@ async def zm_rework(
 ) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
-            "SELECT version, reopen_count, phase, zone_id FROM complaint WHERE complaint_id = $1 FOR UPDATE",
+            "SELECT version, reopen_count, phase, zone_id FROM complaint WHERE complaint_id = $1 AND handler = 'ZM' FOR UPDATE",
             complaint_id,
         )
         if not row or row["zone_id"] != zone_id:
@@ -1618,7 +1621,7 @@ async def zm_handle_dispute(
 ) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
-            "SELECT version, status, resolution, zone_id FROM complaint WHERE complaint_id = $1 FOR UPDATE",
+            "SELECT version, status, resolution, zone_id FROM complaint WHERE complaint_id = $1 AND handler = 'ZM' FOR UPDATE",
             complaint_id,
         )
         if not row or row["zone_id"] != zone_id:
@@ -1671,7 +1674,7 @@ async def zm_escalate(
 ) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
-            "SELECT version, handler, zone_id FROM complaint WHERE complaint_id = $1 FOR UPDATE",
+            "SELECT version, handler, zone_id FROM complaint WHERE complaint_id = $1 AND handler = 'ZM' FOR UPDATE",
             complaint_id,
         )
         if not row or row["zone_id"] != zone_id:
@@ -1705,7 +1708,7 @@ async def zm_close_duplicate(
 ) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
-            "SELECT version, zone_id FROM complaint WHERE complaint_id = $1 FOR UPDATE",
+            "SELECT version, zone_id FROM complaint WHERE complaint_id = $1 AND handler = 'ZM' FOR UPDATE",
             complaint_id,
         )
         if not row or row["zone_id"] != zone_id:
