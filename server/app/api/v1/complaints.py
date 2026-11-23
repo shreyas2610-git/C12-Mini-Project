@@ -58,6 +58,7 @@ from app.data_access.complaints import (
     coordinator_close_duplicate,
     coordinator_close_invalid,
     coordinator_confirm_and_route,
+    coordinator_hand_off,
     coordinator_request_clarification,
     create_complaint,
     get_complaint_detail,
@@ -318,6 +319,19 @@ async def confirm_and_route(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
     await coordinator_confirm_and_route(conn, complaint_id, user, body.zone_id, body.note)
     return {"message": "Complaint confirmed and routed to Zone Manager / GM."}
+
+
+@router.post("/{complaint_id}/handoff", summary="Coordinator hands off ticket to ZM/GM without confirming")
+async def hand_off(
+    complaint_id: int,
+    body: RouteRequest,
+    user: dict[str, Any] = Depends(get_current_user),
+    conn=Depends(get_conn),
+) -> dict[str, str]:
+    if user["role_name"] not in ("Coordinator", "GM"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    await coordinator_hand_off(conn, complaint_id, user, body.zone_id, body.note)
+    return {"message": "Complaint handed off to Zone Manager / GM."}
 
 
 @router.patch("/{complaint_id}/category", summary="Coordinator changes category")

@@ -928,6 +928,59 @@ async def coordinator_confirm_and_route(
         )
 
 
+async def coordinator_hand_off(
+    conn: asyncpg.Connection,
+    complaint_id: int,
+    user: dict[str, Any],
+    zone_id: Optional[int] = None,
+    note: Optional[str] = None,
+) -> None:
+    """T5: Hand off a ticket to the ZM/GM without confirming it.
+    Only changes the handler; confirmed_by/confirmed_at stay empty so the ZM can confirm later."""
+    async with conn.transaction():
+        c = await conn.fetchrow(
+            """
+            SELECT c.category_id, cat.is_sensitive, c.zone_id
+            FROM complaint c
+            JOIN complaint_category cat ON cat.category_id = c.category_id
+            WHERE c.complaint_id = $1
+            """,
+            complaint_id,
+        )
+        if not c:
+            raise not_found_exception("Complaint not found.")
+
+        target_handler = "GM" if c["is_sensitive"] else "ZM"
+        target_zone = zone_id or c["zone_id"]
+
+        await conn.execute(
+            """
+            UPDATE complaint
+            SET
+                handler = $1,
+                zone_id = $2
+            WHERE complaint_id = $3
+            """,
+            target_handler,
+            target_zone,
+            complaint_id,
+        )
+
+        await conn.execute(
+            """
+            INSERT INTO status_history (
+                complaint_id, event_type, from_value, to_value, actor_role_id, actor_user_id, reason
+            )
+            VALUES ($1, 'HANDLER_CHANGE', 'Coordinator', $2, $3, $4, $5)
+            """,
+            complaint_id,
+            target_handler,
+            user["role_id"],
+            user["user_id"],
+            note or f"Handed off to {target_handler}",
+        )
+
+
 async def coordinator_change_category(
     conn: asyncpg.Connection,
     complaint_id: int,

@@ -143,6 +143,13 @@ export async function apiConfirm(id: number, version: number): Promise<Complaint
   })
 }
 
+export async function apiHandOff(id: number, version: number): Promise<Complaint> {
+  return request<Complaint>(`${BASE}/${id}/handoff`, {
+    method: 'POST',
+    body: JSON.stringify({ version }),
+  })
+}
+
 export async function apiSendBack(
     id: number,
     version: number,

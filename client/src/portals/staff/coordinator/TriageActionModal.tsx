@@ -11,6 +11,7 @@ import {
 import {
   Category,
   Complaint,
+  apiHandOff,
   changeCategory,
   closeDuplicate,
   closeInvalid,
@@ -25,7 +26,7 @@ interface TriageActionModalProps {
   onSuccess: () => void
 }
 
-type TriageTab = 'CONFIRM_ROUTE' | 'CLARIFY' | 'CATEGORY' | 'INVALID' | 'DUPLICATE'
+type TriageTab = 'CONFIRM_ROUTE' | 'HAND_OFF' | 'CLARIFY' | 'CATEGORY' | 'INVALID' | 'DUPLICATE'
 
 export function TriageActionModal({
   complaint,
@@ -51,6 +52,19 @@ export function TriageActionModal({
     setError(null)
     try {
       await confirmAndRoute(complaint.complaint_id, routeZoneId, routeNote || undefined)
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleHandOff() {
+    setSubmitting(true)
+    setError(null)
+    try {
+      await apiHandOff(complaint.complaint_id, complaint.version)
       onSuccess()
     } catch (err: any) {
       setError(err.message)
@@ -199,6 +213,18 @@ export function TriageActionModal({
           </button>
           <button
             type="button"
+            onClick={() => setTab('HAND_OFF')}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              tab === 'HAND_OFF'
+                ? 'bg-indigo-600 text-white'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <ArrowRight className="h-3.5 w-3.5" />
+            Hand Off to ZM/GM
+          </button>
+          <button
+            type="button"
             onClick={() => setTab('CLARIFY')}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
               tab === 'CLARIFY' ? 'bg-amber-600 text-white' : 'text-gray-600 hover:bg-gray-100'
@@ -280,6 +306,50 @@ export function TriageActionModal({
                 className="w-full rounded-lg bg-indigo-600 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
               >
                 {submitting ? 'Confirming…' : 'Confirm Genuine & Route to Zone Manager'}
+              </button>
+            </div>
+          )}
+
+          {/* TAB 1B: Hand Off to ZM/GM (no confirmation) */}
+          {tab === 'HAND_OFF' && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3.5 text-xs text-indigo-900">
+                Routes this complaint to the designated Zone Manager (or GM if category is sensitive)
+                <strong>without confirming it</strong>. The ZM can then confirm it on their end.
+                Moves handler to ZM/GM; phase stays Triage.
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700">Target Zone</label>
+                <select
+                  value={routeZoneId}
+                  onChange={(e) => setRouteZoneId(Number(e.target.value))}
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900"
+                >
+                  <option value={1}>Zone 1 (Jasmine, Lotus, Clubhouse)</option>
+                  <option value={2}>Zone 2 (Rose, Lily, Marigold, Park)</option>
+                  <option value={3}>Zone 3 (Tulip, Orchid, Parking, Sports Court)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-700">Handoff Note (Optional)</label>
+                <input
+                  type="text"
+                  value={routeNote}
+                  onChange={(e) => setRouteNote(e.target.value)}
+                  placeholder="e.g. Please review this ticket; zone reassignment"
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleHandOff}
+                disabled={submitting}
+                className="w-full rounded-lg bg-indigo-600 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {submitting ? 'Handing off…' : 'Hand Off to Zone Manager / GM'}
               </button>
             </div>
           )}
