@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   X,
   AlertCircle,
+  ArrowRight,
   CheckCircle2,
   Send,
   Ban,
@@ -11,13 +12,13 @@ import {
 import {
   Category,
   Complaint,
-  apiHandOff,
   changeCategory,
   closeDuplicate,
   closeInvalid,
   confirmAndRoute,
   requestClarification,
 } from '../../../api/endpoints/complaints'
+import { apiHandOff } from '../../../api/endpoints/zm'
 
 interface TriageActionModalProps {
   complaint: Complaint
