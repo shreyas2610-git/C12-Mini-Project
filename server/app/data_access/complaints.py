@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 import asyncpg
-from app.core.exceptions import bad_request_exception, not_found_exception
+from app.core.exceptions import bad_request_exception, conflict_exception, not_found_exception
 
 
 # -- Lookups -------------------------------------------------------------------
